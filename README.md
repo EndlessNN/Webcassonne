@@ -1,5 +1,4 @@
 # Webcassonne
-Веб-платформа, що повністю емулює фізичну копію настільної гри "Carcassonne".
 ### Команда
 - **Панько Владислав** — AI-enabled Engineer
 - **Костик Олексій** — AI-enabled Engineer
