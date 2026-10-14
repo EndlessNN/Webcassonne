@@ -1,5 +1,7 @@
 # Webcassonne
 
+📋 **Специфікація вимог (User Journey, карта історій, межі MVP, Acceptance Criteria):** [docs/requirements.md](docs/requirements.md)
+
 ## Команда
 
 - **Панько Владислав** — AI-enabled Engineer
