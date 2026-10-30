@@ -1,0 +1,13 @@
+:root {
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0 auto;
+  max-width: 720px;
+  padding: 2rem 1rem;
+}
+
+.ok { color: green; }
+.fail { color: crimson; }

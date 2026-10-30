@@ -4,6 +4,41 @@
 
 📋 **Специфікація вимог:** [docs/requirements.md](docs/requirements.md)
 
+## Запуск
+
+Потрібні Go 1.26+ і Node.js 20+. З кореня репозиторію:
+
+```bash
+npm --prefix web install && npm --prefix web run build
+go -C server run ./cmd/server
+```
+
+Відкрийте http://localhost:8090 — сторінка-заглушка показує стан зв'язку з сервером.
+
+**Перевірка:**
+
+```bash
+curl http://localhost:8090/api/health
+```
+
+Очікувано: `{"status":"ok","storage":{"type":"memory","rooms":0}}`.
+
+**Розробка UI з гарячим перезавантаженням** (сервер має бути запущений): `npm --prefix web run dev`, потім http://localhost:5173.
+
+**Тести й лінтери:** `go -C server test ./...`, `go -C server vet ./...`, `npm --prefix web run lint`.
+
+Порт змінюється змінною `PORT`. Якщо міняєте порт, оновіть також проксі в `web/vite.config.ts`.
+
+## Технічна документація
+
+| Документ | Зміст |
+|---|---|
+| [docs/technical-analysis.md](docs/technical-analysis.md) | Сутності, життєві цикли, заборони, припущення, прогалини |
+| [docs/adr/](docs/adr/) | Архітектурні рішення: структура, UI, бекенд, сховище, ідентифікація і синхронізація |
+| [docs/data-model.md](docs/data-model.md) | Модель даних: поля, ключі, обмеження |
+| [docs/api.md](docs/api.md) | REST і WebSocket, єдиний формат помилок |
+| [AGENTS.md](AGENTS.md) | Інструкції для ШІ-асистентів (`CLAUDE.md` і `GEMINI.md` його імпортують) |
+
 ---
 
 ## Контекст проєкту
