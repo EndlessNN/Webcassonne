@@ -6,12 +6,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/EndlessNN/Webcassonne/server/internal/room"
 	"github.com/EndlessNN/Webcassonne/server/internal/store"
 )
 
 func TestHealth(t *testing.T) {
 	rec := httptest.NewRecorder()
-	NewRouter(store.NewMemory(), nil).ServeHTTP(rec, httptest.NewRequest("GET", "/api/health", nil))
+	newTestRouter().ServeHTTP(rec, httptest.NewRequest("GET", "/api/health", nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -28,7 +29,7 @@ func TestHealth(t *testing.T) {
 
 func TestUnknownAPIPathReturnsErrorFormat(t *testing.T) {
 	rec := httptest.NewRecorder()
-	NewRouter(store.NewMemory(), nil).ServeHTTP(rec, httptest.NewRequest("GET", "/api/nope", nil))
+	newTestRouter().ServeHTTP(rec, httptest.NewRequest("GET", "/api/nope", nil))
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)
@@ -40,4 +41,9 @@ func TestUnknownAPIPathReturnsErrorFormat(t *testing.T) {
 	if got.Error.Code != "NOT_FOUND" || got.Error.Message == "" {
 		t.Fatalf("error = %+v", got.Error)
 	}
+}
+
+func newTestRouter() http.Handler {
+	s := store.NewMemory()
+	return NewRouter(s, room.NewService(s), nil)
 }
