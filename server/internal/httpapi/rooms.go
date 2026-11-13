@@ -168,6 +168,7 @@ func roomSocket(rooms *room.Service) http.HandlerFunc {
 
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
+		unknownMessage := make(chan struct{}, 1)
 		go func() {
 			defer cancel()
 			for {
@@ -175,7 +176,11 @@ func roomSocket(rooms *room.Service) http.HandlerFunc {
 					return
 				}
 				// Клієнтські повідомлення (start_game тощо) з'являються з US-05.
-				_ = wsjson.Write(ctx, conn, errorMessage{Type: "error", Error: APIError{Code: "VALIDATION_ERROR", Message: "Невідомий тип повідомлення"}})
+				select {
+				case unknownMessage <- struct{}{}:
+				case <-ctx.Done():
+					return
+				}
 			}
 		}()
 
@@ -186,6 +191,13 @@ func roomSocket(rooms *room.Service) http.HandlerFunc {
 			case <-sub.Done:
 				conn.Close(websocket.StatusPolicyViolation, "підключено з іншої вкладки")
 				return
+			case <-unknownMessage:
+				wctx, wcancel := context.WithTimeout(ctx, 5*time.Second)
+				err := wsjson.Write(wctx, conn, errorMessage{Type: "error", Error: APIError{Code: "VALIDATION_ERROR", Message: "Невідомий тип повідомлення"}})
+				wcancel()
+				if err != nil {
+					return
+				}
 			case snap := <-sub.Updates:
 				wctx, wcancel := context.WithTimeout(ctx, 5*time.Second)
 				err := wsjson.Write(wctx, conn, roomStateMessage{Type: "room_state", Room: toRoomView(snap, sub.PlayerID)})
