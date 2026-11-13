@@ -1,45 +1,42 @@
 import { useEffect, useState } from 'react'
 import { getHealth } from './api/client'
-import type { HealthResponse } from './api/types'
+import Home from './pages/Home'
+import Invite from './pages/Invite'
+import Lobby from './pages/Lobby'
 
-const screens = [
-  ['Головна', 'створення кімнати за нікнеймом (US-01)'],
-  ['Вхід за запрошенням', 'приєднання до кімнати (US-03)'],
-  ['Лобі', 'список гравців, посилання, старт партії (US-02, US-04, US-05)'],
-  ['Партія', 'поле, тайл, міпли, рахунок (US-06 – US-20)'],
-  ['Результати', 'фінальна таблиця з переможцем (US-21 – US-23)'],
-]
+export interface Session {
+  roomCode: string
+  token: string // лише в пам'яті вкладки (ADR-0005)
+}
+
+const inviteCode = /^\/r\/([A-Za-z0-9]+)$/.exec(location.pathname)?.[1]
 
 export default function App() {
-  const [health, setHealth] = useState<HealthResponse | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [session, setSession] = useState<Session | null>(null)
+  const [serverDown, setServerDown] = useState(false)
 
   useEffect(() => {
-    getHealth().then(setHealth, (e: Error) => setError(e.message))
+    getHealth().catch(() => setServerDown(true))
   }, [])
+
+  function enter(s: Session) {
+    history.replaceState(null, '', `/r/${s.roomCode}`)
+    setSession(s)
+  }
 
   return (
     <main>
-      <h1>Webcassonne</h1>
-      <p>Онлайн-версія базової Carcassonne для компанії друзів. Каркас без ігрової логіки.</p>
-
-      <h2>Зв'язок із сервером</h2>
-      {health && (
-        <p className="ok">
-          Сервер: {health.status}, сховище: {health.storage.type}, кімнат: {health.storage.rooms}
-        </p>
+      <h1>
+        <a href="/">Webcassonne</a>
+      </h1>
+      {serverDown && <p className="fail">Сервер недоступний. Запустіть go -C server run ./cmd/server</p>}
+      {session ? (
+        <Lobby session={session} />
+      ) : inviteCode ? (
+        <Invite code={inviteCode.toUpperCase()} onEnter={enter} />
+      ) : (
+        <Home onEnter={enter} />
       )}
-      {error && <p className="fail">Сервер недоступний: {error}</p>}
-      {!health && !error && <p>Перевіряємо /api/health…</p>}
-
-      <h2>Майбутні екрани</h2>
-      <ul>
-        {screens.map(([name, desc]) => (
-          <li key={name}>
-            <b>{name}</b> — {desc}
-          </li>
-        ))}
-      </ul>
     </main>
   )
 }

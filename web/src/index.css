@@ -11,3 +11,7 @@ body {
 
 .ok { color: green; }
 .fail { color: crimson; }
+
+h1 a { color: inherit; text-decoration: none; }
+.row { display: flex; gap: 0.5rem; margin: 0.25rem 0; }
+input, button { font: inherit; padding: 0.3rem 0.6rem; }
