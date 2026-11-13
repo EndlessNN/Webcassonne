@@ -108,6 +108,50 @@ func TestSocket_InvalidTokenRejectedBeforeUpgrade(t *testing.T) {
 	}
 }
 
+func TestSocket_InvalidOriginDoesNotDisconnectExistingPlayer(t *testing.T) {
+	srv := newTestServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var created createRoomResponse
+	post(t, srv, "/api/rooms", `{"nickname":"Олег"}`, &created)
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/api/rooms/" + created.RoomCode + "/ws?token=" + created.Token
+
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.CloseNow()
+
+	var first roomStateMessage
+	if err := wsjson.Read(ctx, conn, &first); err != nil {
+		t.Fatal(err)
+	}
+
+	_, res, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		HTTPHeader: http.Header{"Origin": []string{"https://evil.example"}},
+	})
+	if err == nil {
+		t.Fatal("second dial with invalid origin unexpectedly succeeded")
+	}
+	if res == nil || res.StatusCode == http.StatusSwitchingProtocols {
+		t.Fatalf("second dial returned unexpected status: %#v", res)
+	}
+
+	var joined joinRoomResponse
+	if code := post(t, srv, "/api/rooms/"+created.RoomCode+"/players", `{"nickname":"Ірина"}`, &joined); code != http.StatusCreated {
+		t.Fatalf("join after invalid origin = %d, want 201", code)
+	}
+
+	var update roomStateMessage
+	if err := wsjson.Read(ctx, conn, &update); err != nil {
+		t.Fatal(err)
+	}
+	if len(update.Room.Players) != 2 {
+		t.Fatalf("players after invalid origin = %d, want 2", len(update.Room.Players))
+	}
+}
+
 // US-04: новий гравець з'являється в лобі без перезавантаження, а той, хто вийшов, зникає.
 func TestSocket_LobbyUpdates(t *testing.T) {
 	srv := newTestServer(t)

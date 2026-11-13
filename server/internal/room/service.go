@@ -117,6 +117,21 @@ func (s *Service) Join(code, nickname string) (*model.Player, error) {
 	return p, nil
 }
 
+// ValidateConnect перевіряє, чи можна підключитися до кімнати з токеном без побічних ефектів.
+func (s *Service) ValidateConnect(code, token string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	r, ok := s.store.Get(code)
+	if !ok {
+		return ErrRoomNotFound
+	}
+	if findByToken(r, token) == nil {
+		return ErrInvalidToken
+	}
+	return nil
+}
+
 // Connect реєструє WebSocket-підписку гравця і розсилає свіжий знімок (US-04).
 func (s *Service) Connect(code, token string) (*Sub, error) {
 	s.mu.Lock()

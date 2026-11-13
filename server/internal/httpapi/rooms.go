@@ -147,17 +147,23 @@ func joinRoom(rooms *room.Service) http.HandlerFunc {
 // roomSocket — канал кімнати: надсилає room_state після кожної зміни (US-04).
 func roomSocket(rooms *room.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		sub, err := rooms.Connect(r.PathValue("code"), r.URL.Query().Get("token"))
-		if err != nil {
+		code := r.PathValue("code")
+		token := r.URL.Query().Get("token")
+		if err := rooms.ValidateConnect(code, token); err != nil {
 			writeRoomError(w, err) // до апгрейду, тому звичайна REST-відповідь
 			return
 		}
-		defer rooms.Disconnect(sub)
 
 		conn, err := websocket.Accept(w, r, nil) // перевіряє Origin == Host
 		if err != nil {
 			return
 		}
+		sub, err := rooms.Connect(code, token)
+		if err != nil {
+			conn.Close(websocket.StatusPolicyViolation, "не вдалося підключитися")
+			return
+		}
+		defer rooms.Disconnect(sub)
 		defer conn.CloseNow()
 
 		ctx, cancel := context.WithCancel(r.Context())
