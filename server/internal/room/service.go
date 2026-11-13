@@ -67,10 +67,16 @@ func (s *Service) Create(nickname string) (*model.Room, *model.Player, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	p := s.newPlayer(nickname)
+	p, err := s.newPlayer(nickname)
+	if err != nil {
+		return nil, nil, err
+	}
 	r := &model.Room{Status: model.RoomLobby, HostPlayerID: p.ID, CreatedAt: s.now(), Players: []*model.Player{p}}
 	for {
-		r.Code = randomCode()
+		r.Code, err = randomCode()
+		if err != nil {
+			return nil, nil, err
+		}
 		if s.store.Add(r) {
 			return r, p, nil
 		}
@@ -111,7 +117,10 @@ func (s *Service) Join(code, nickname string) (*model.Player, error) {
 			return nil, ErrNicknameTaken
 		}
 	}
-	p := s.newPlayer(nickname)
+	p, err := s.newPlayer(nickname)
+	if err != nil {
+		return nil, err
+	}
 	r.Players = append(r.Players, p)
 	s.broadcast(r)
 	return p, nil
@@ -213,8 +222,16 @@ func (s *Service) broadcast(r *model.Room) {
 	}
 }
 
-func (s *Service) newPlayer(nickname string) *model.Player {
-	return &model.Player{ID: uuid4(), Nickname: nickname, Token: randomHex(16), Seat: -1, JoinedAt: s.now()}
+func (s *Service) newPlayer(nickname string) (*model.Player, error) {
+	id, err := uuid4()
+	if err != nil {
+		return nil, err
+	}
+	token, err := randomHex(16)
+	if err != nil {
+		return nil, err
+	}
+	return &model.Player{ID: id, Nickname: nickname, Token: token, Seat: -1, JoinedAt: s.now()}, nil
 }
 
 func validateNickname(n string) (string, error) {
@@ -249,25 +266,31 @@ func snapshot(r *model.Room) model.Room {
 	return c
 }
 
-func randomCode() string {
+func randomCode() (string, error) {
 	b := make([]byte, 6)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
 	for i := range b {
 		b[i] = codeAlphabet[int(b[i])%len(codeAlphabet)] // 256 % 32 == 0, тож розподіл рівномірний
 	}
-	return string(b)
+	return string(b), nil
 }
 
-func randomHex(n int) string {
+func randomHex(n int) (string, error) {
 	b := make([]byte, n)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
-func uuid4() string {
+func uuid4() (string, error) {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
 	b[6] = b[6]&0x0f | 0x40
 	b[8] = b[8]&0x3f | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:]), nil
 }
