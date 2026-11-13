@@ -144,3 +144,9 @@ npm --prefix web run build          # включає tsc
 2. `go test`, `go vet`, `gofmt -l`, `npm run lint`, `npm run build` проходять.
 3. `docs/api.md` і `docs/data-model.md` відповідають коду; позначка ⏳ у `api.md` змінена на ✅.
 4. Звіт чесний: що зроблено, що не перевірено, що падає.
+
+---
+
+## 9. Код-рев'ю
+
+Під час рев'ю Pull Request дотримуйся правил з [`.github/copilot-instructions.md`](.github/copilot-instructions.md).
