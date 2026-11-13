@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"time"
@@ -96,7 +97,13 @@ func toAPIError(e *room.Error) APIError {
 
 func readNickname(w http.ResponseWriter, r *http.Request) (string, bool) {
 	var req nicknameRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&req); err != nil {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Неправильне тіло запиту")
+		return "", false
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Неправильне тіло запиту")
 		return "", false
 	}

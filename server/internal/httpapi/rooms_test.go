@@ -54,6 +54,8 @@ func TestCreateAndJoin_StatusCodes(t *testing.T) {
 	}{
 		{"порожній нікнейм", "/api/rooms", `{"nickname":""}`, 400, "VALIDATION_ERROR"},
 		{"неправильний JSON", "/api/rooms", `{`, 400, "VALIDATION_ERROR"},
+		{"невідоме поле", "/api/rooms", `{"nickname":"Олег","extra":1}`, 400, "VALIDATION_ERROR"},
+		{"зайві байти після JSON", "/api/rooms", `{"nickname":"Олег"}garbage`, 400, "VALIDATION_ERROR"},
 		{"успішний вхід", "/api/rooms/" + created.RoomCode + "/players", `{"nickname":"Ірина"}`, 201, ""},
 		{"нікнейм зайнятий", "/api/rooms/" + created.RoomCode + "/players", `{"nickname":"олег"}`, 409, "NICKNAME_TAKEN"},
 		{"кімнати немає", "/api/rooms/ZZZZZZ/players", `{"nickname":"Андрій"}`, 404, "ROOM_NOT_FOUND"},
