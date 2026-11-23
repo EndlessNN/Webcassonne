@@ -30,6 +30,16 @@
 
 Критерії приймання — специфікація поведінки: один Gherkin-сценарій = щонайменше один тест.
 
+### Процес: зміни OpenSpec
+
+Роботу плануємо й здаємо як зміни OpenSpec у [`openspec/`](openspec/) (CLI `openspec`, `npm i -g @fission-ai/openspec`). Скіли або slash-команди:
+
+1. `/opsx:propose` — створити зміну (proposal, specs, design, tasks); вимоги беруться з `docs/requirements.md`, а не вигадуються.
+2. `/opsx:apply` — реалізувати tasks; задачу відмічати лише після її перевірки.
+3. `/opsx:archive` — після рев'ю злити specs зміни в [`openspec/specs/`](openspec/specs/) — поточну поведінку системи.
+
+Antigravity: `/opsx-propose`, `/opsx-apply`, `/opsx-archive`.
+
 ---
 
 ## 3. Стек
