@@ -2,7 +2,9 @@ package room
 
 import (
 	"errors"
+	"math/rand/v2"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -222,6 +224,35 @@ func TestUS05_StartGame(t *testing.T) {
 			assertSameState(t, before, state(s, r))
 		}
 	})
+}
+
+// US-05 «порядок ходів визначено випадково»: один прогін випадковість не доводить, тому фіксуємо генератор
+// кімнати (поле rng, AGENTS.md: генератор передається параметром) 20 сідами і перевіряємо, що порядок місць
+// залежить від генератора, а не від порядку входу: трапляються різні порядки, і організатор ходить не завжди першим.
+func TestUS05_TurnOrderIsShuffled(t *testing.T) {
+	orders := map[string]bool{}
+	hostFirst := 0
+	const seeds = 20
+	for seed := range uint64(seeds) {
+		s := newTestService()
+		s.rng = rand.New(rand.NewPCG(seed, 2))
+		r, ps := newLobby(t, s, "Олег", "Ірина", "Андрій")
+		if err := s.StartGame(r.Code, ps[0].ID); err != nil {
+			t.Fatal(err)
+		}
+		snap := state(s, r) // гравці в порядку входу: перший — організатор
+		order := ""
+		for _, p := range snap.Players {
+			order += strconv.Itoa(p.Seat)
+		}
+		orders[order] = true
+		if snap.Players[0].Seat == 0 {
+			hostFirst++
+		}
+	}
+	if len(orders) < 2 || hostFirst == seeds {
+		t.Fatalf("порядок місць не залежить від генератора: порядки %v, організатор першим у %d з %d", orders, hostFirst, seeds)
+	}
 }
 
 // US-07: спроба діяти не у свій хід — дія не виконується, стан не змінюється.
