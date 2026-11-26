@@ -553,3 +553,43 @@ func TestAbandoned_DisconnectDuringGame(t *testing.T) {
 		})
 	}
 }
+
+// Shortcut до US-13 (api.md §1): legalMeepleSegments завжди порожні, тож place_meeple у фазі PLACE_MEEPLE —
+// ILLEGAL_MEEPLE; порядок перевірок той самий: автор → фаза → правило. Стан після відмови не змінюється.
+func TestUS13_PlaceMeepleRejectedUntilImplemented(t *testing.T) {
+	tests := []struct {
+		name          string
+		placeTile     bool // спершу покласти тайл (фаза PLACE_MEEPLE)
+		byActive      bool
+		code, message string
+	}{
+		{"ILLEGAL_MEEPLE: фаза PLACE_MEEPLE", true, true, "ILLEGAL_MEEPLE", "Міпла не можна поставити на цей сегмент"},
+		{"WRONG_PHASE: фаза PLACE_TILE", false, true, "WRONG_PHASE", "Ця дія зараз недоступна"},
+		{"NOT_YOUR_TURN: фаза PLACE_MEEPLE", true, false, "NOT_YOUR_TURN", "Зараз хід іншого гравця"},
+		{"NOT_YOUR_TURN раніше за фазу", false, false, "NOT_YOUR_TURN", "Зараз хід іншого гравця"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestService()
+			r, active, passive := startedGame(t, s)
+			setTurn(s, r, "E", []string{"U", "B"})
+			if tt.placeTile {
+				if err := s.PlaceTile(r.Code, active.ID, model.Position{X: 0, Y: -1}, 180); err != nil {
+					t.Fatal(err)
+				}
+			}
+			author := passive
+			if tt.byActive {
+				author = active
+			}
+			before := state(s, r)
+			for _, segment := range []int{0, 1, -1, 99} {
+				wantError(t, s.PlaceMeeple(r.Code, author.ID, segment), tt.code, tt.message)
+			}
+			assertSameState(t, before, state(s, r))
+			if got := before.MeeplesInSupply; got[active.ID] != 7 || got[passive.ID] != 7 {
+				t.Fatalf("meeplesInSupply = %v, want 7 у кожного", got)
+			}
+		})
+	}
+}

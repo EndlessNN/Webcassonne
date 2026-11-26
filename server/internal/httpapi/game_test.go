@@ -215,6 +215,10 @@ func TestSocket_US07_US12_GameErrors(t *testing.T) {
 	active.send(map[string]any{"type": "rotate_tile"})
 	active.readError("VALIDATION_ERROR", "Невідомий тип повідомлення")
 
+	// Shortcut до US-13: place_meeple у фазі PLACE_TILE — WRONG_PHASE.
+	active.send(map[string]any{"type": "place_meeple", "segment": 0})
+	active.readError("WRONG_PHASE", "Ця дія зараз недоступна")
+
 	// Допустимий хід: обидва отримують знімок; помилки іншого гравця сюди не потрапили.
 	active.send(map[string]any{"type": "place_tile", "x": legal.X, "y": legal.Y, "rotation": legal.Rotations[0]})
 	for i, c := range []*wsClient{active, passive} {
@@ -225,7 +229,15 @@ func TestSocket_US07_US12_GameErrors(t *testing.T) {
 		if g.LegalPlacements == nil || len(g.LegalPlacements) != 0 || g.CurrentPlayerID != s0.Game.CurrentPlayerID {
 			t.Fatalf("клієнт %d: legalPlacements = %+v, current = %s", i, g.LegalPlacements, g.CurrentPlayerID)
 		}
+		// Shortcut до US-13 (api.md): legalMeepleSegments завжди [], а не null.
+		if g.LegalMeepleSegments == nil || len(g.LegalMeepleSegments) != 0 {
+			t.Fatalf("клієнт %d: legalMeepleSegments = %+v", i, g.LegalMeepleSegments)
+		}
 	}
+
+	// Фаза PLACE_MEEPLE: place_meeple — ILLEGAL_MEEPLE лише автору; хід завершує skip_meeple (US-14).
+	active.send(map[string]any{"type": "place_meeple", "segment": 0})
+	active.readError("ILLEGAL_MEEPLE", "Міпла не можна поставити на цей сегмент")
 }
 
 // sameState — знімки двох гравців однакові в усьому, крім youPlayerId (US-15 «Однаковий стан у всіх»).
