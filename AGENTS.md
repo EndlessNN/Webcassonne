@@ -37,7 +37,7 @@
 - **Бекенд:** Go 1.26, `net/http` (`http.ServeMux`). WebSocket — `github.com/coder/websocket`, додається з US-04.
 - **Фронтенд:** React 19 + TypeScript (strict) + Vite, лінтер oxlint. Поле — SVG без бібліотек.
 - **Сховище:** пам'ять процесу (`server/internal/store`), бази даних немає ([ADR-0004](docs/adr/0004-in-memory-storage.md)).
-- **Тести:** `go test` (табличні тести).
+- **Тести:** `go test` (табличні тести) для `game`, `room`, `httpapi`; Vitest (середовище `node`) для чистих функцій `web/src/game`; `npm test` з кореня запускає обидва ([ADR-0006](docs/adr/0006-testing-stack.md)). Що й на якому рівні тестуємо — [`docs/testing-strategy.md`](docs/testing-strategy.md); тести з критеріїв приймання пишемо за скілом [`.claude/skills/tests-from-ac`](.claude/skills/tests-from-ac/SKILL.md) (матриця, тести, «зламай код навмисно»); результати — [`docs/testing-report.md`](docs/testing-report.md).
 
 Нова технологія або бібліотека (БД, router, state-менеджер, UI-кіт, Socket.IO, веб-фреймворк) — рішення команди через новий ADR. Пропонуй, не впроваджуй.
 
@@ -78,8 +78,14 @@ go -C server run ./cmd/server
 # Dev-режим UI з гарячим перезавантаженням (другий термінал; /api проксіюється на :8090)
 npm --prefix web run dev            # http://localhost:5173
 
+# Тести (з кореня; перед першим запуском — npm --prefix web install)
+npm test                            # усі: Go + Vitest
+npm run test:go                     # = go -C server test ./...
+npm run test:web                    # = npm --prefix web test (Vitest)
+go -C server test -race ./...       # гонки даних (потрібен gcc)
+go -C server test -cover ./...      # покриття — орієнтир
+
 # Перевірки
-go -C server test ./...
 go -C server vet ./...
 gofmt -l server                     # має нічого не вивести
 npm --prefix web run lint

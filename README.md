@@ -25,7 +25,7 @@ curl http://localhost:8090/api/health
 
 **Розробка UI з гарячим перезавантаженням** (сервер має бути запущений): `npm --prefix web run dev`, потім http://localhost:5173.
 
-**Тести й лінтери:** `go -C server test ./...`, `go -C server vet ./...`, `npm --prefix web run lint`.
+**Тести й лінтери:** див. розділ [«Тести»](#тести).
 
 Порт змінюється змінною `PORT`. Якщо міняєте порт, оновіть також проксі в `web/vite.config.ts`.
 
@@ -63,6 +63,26 @@ curl http://localhost:8090/api/health
 
 Схематичний вигляд усіх тайлів — `docs/tiles-preview.html` (відкрийте у браузері).
 
+## Тести
+
+Усі автотести однією командою з кореня (Go + Vitest, [ADR-0006](docs/adr/0006-testing-stack.md)); перед першим запуском — `npm --prefix web install`:
+
+```bash
+npm test
+```
+
+Окремо:
+
+```bash
+npm run test:go                     # = go -C server test ./...   — game, room, httpapi
+npm run test:web                    # = npm --prefix web test     — Vitest, web/src/game
+go -C server test -race ./...       # гонки даних; потрібен gcc (на Windows без gcc — без -race)
+go -C server test -cover ./...      # покриття — орієнтир, не ціль
+go -C server vet ./... && gofmt -l server && npm --prefix web run lint && npm --prefix web run build
+```
+
+Що й на якому рівні перевіряємо, правила тестових даних і прийом «зламай код навмисно» — [docs/testing-strategy.md](docs/testing-strategy.md). Покриття сценаріїв, ручний чекліст, знайдені баги й рефлексія — [docs/testing-report.md](docs/testing-report.md).
+
 ## Технічна документація
 
 | Документ | Зміст |
@@ -71,6 +91,8 @@ curl http://localhost:8090/api/health
 | [docs/adr/](docs/adr/) | Архітектурні рішення: структура, UI, бекенд, сховище, ідентифікація і синхронізація |
 | [docs/data-model.md](docs/data-model.md) | Модель даних: поля, ключі, обмеження |
 | [docs/api.md](docs/api.md) | REST і WebSocket, єдиний формат помилок |
+| [docs/testing-strategy.md](docs/testing-strategy.md) | Тестова стратегія: межі, рівні, організація, тестові дані |
+| [docs/testing-report.md](docs/testing-report.md) | Звіт з тестування: покриття, ручний чекліст, баги, рефлексія |
 | [AGENTS.md](AGENTS.md) | Інструкції для ШІ-асистентів (`CLAUDE.md` і `GEMINI.md` його імпортують) |
 
 ---

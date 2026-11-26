@@ -26,25 +26,29 @@
 
 ## 3. Історії → рівні
 
-| Історія | Рівень | Покрито зараз | Буде покрито (6.2) | Лише вручну |
-|---|---|---|---|---|
-| US-01 | room, httpapi | `TestUS01_CreateRoom`, `TestCreateAndJoin_StatusCodes` | — | Форма на головній |
-| US-02 | — | — | — | Копіювання, запасне поле |
-| US-03 | room, httpapi | `TestUS03_Join`, `TestCreateAndJoin_StatusCodes`, `TestPreview` | — | Сторінка запрошення |
-| US-04 | room, httpapi | `TestUS04_*`, `TestHostLeavesLobby_*`, `TestLastPlayerLeaves_*`, `TestReconnect_*`, `TestSocket_LobbyUpdates` | — | Зникнення за ~2 с |
-| US-05 | room, httpapi | — | `NOT_HOST`, `NOT_ENOUGH_PLAYERS`, `GAME_ALREADY_STARTED`; місця — перестановка, кольори унікальні, 7 міплів, `deckCount` 70 | Кнопка, підказка, напис для не організатора |
-| US-06 | httpapi | — | `GET /api/tiles` = 24 типи, 72 тайли; `game.tiles` зі стартовим | Вигляд тайлів |
-| US-07 | game, room | — | `NOT_YOUR_TURN`, стан не змінився | «Ваш хід» / «Хід: …» |
-| US-08 | — | — | — | Перетягування |
-| US-09 | game, room | — | Скидання з `discardedTiles`, `deckCount` −1 за хід | Повідомлення про скидання |
-| US-10 | web | — | `nextRotation`: 0→90, повний оберт | Кнопка, клавіша R |
-| US-11 | game, web | — | `LegalPlacements` для обертань; `highlightedCells` (чужий хід, фаза, обертання) | Вигляд підсвітки |
-| US-12 | game, room, httpapi | `TestUS12_PlaceTile` (тест першим) | Перехід у `PLACE_MEEPLE`; тексти `ILLEGAL_PLACEMENT` у WS | Клік, підказка |
-| US-14 | room | — | Хід переходить, міплів не меншає | Кнопка «Без міпла» |
-| US-15 | httpapi | — | Обидва з'єднання отримують однаковий `room_state` | ≤ 2 с у двох вікнах |
-| US-16 | room | — | `deckCount`, `meeplesInSupply` | Лічильники на екрані |
-| `ABANDONED`, `FINISHED` | room, httpapi | — | Відключення в `PLAYING`; кінець стопки, нульові `finalScores`; дії після — `WRONG_PHASE` | «Партію перервано» |
-| US-13, US-18…US-23 | game | — | Наступний інкремент, **тести першими** (AGENTS.md §6) | — |
+Стан після аудиту 6.3. Повна таблиця «сценарій → тест» — [testing-report.md §1](testing-report.md#1-покриті-історії-та-сценарії), ручні кроки — там само, §2.
+
+| Історія | Рівень | Автотести | Лише вручну |
+|---|---|---|---|
+| US-01 | room, httpapi | `TestUS01_CreateRoom`, `TestCreateAndJoin_StatusCodes` | Форма на головній |
+| US-02 | — | — | Копіювання, запасне поле |
+| US-03 | room, httpapi | `TestUS03_Join`, `TestCreateAndJoin_StatusCodes`, `TestPreview`, `TestSocket_InvalidTokenRejectedBeforeUpgrade` | Сторінка запрошення |
+| US-04 | room, httpapi | `TestUS04_*` (зокрема `TestUS04_LeaveGrace`), `TestHostLeavesLobby_*`, `TestLastPlayerLeaves_*`, `TestReconnect_*`, `TestSocket_LobbyUpdates` | Час появи й зникнення в лобі |
+| US-05 | game, room, httpapi | `TestUS05_NewGame`, `TestUS05_StartGame`, `TestUS05_TurnOrderIsShuffled`, `TestSocket_US05_*` | Кнопка, підказка, напис для не організатора |
+| US-06 | httpapi, web | `TestUS06_TileCatalog`, `TestSocket_US05_StartGame` (`tiles`), `tileShapes.test.ts` | Вигляд поля, мурів і щитів |
+| US-07 | game, room, httpapi | `TestUS07_NotYourTurn` (game, room), `TestSocket_US07_US12_GameErrors` | «Ваш хід» / «Хід: …» |
+| US-08 | — | — | Перетягування |
+| US-09 | game, room | `TestUS09_DrawTile`, `TestUS09_DrawAfterTurn` | Повідомлення про скидання |
+| US-10 | web | `rotation.test.ts` | Кнопка, клавіша R |
+| US-11 | game, web | `TestUS11_LegalPlacements`, `highlight.test.ts` | Вигляд підсвітки |
+| US-12 | game, room, httpapi | `TestUS12_PlaceTile` (game — тест першим; room), `TestUS12_PlaceTileTwoNeighbors`, `TestUS12_PlaceTileRejected`, `TestSocket_US07_US12_GameErrors`, `TestSocket_MessageFormat` | Клік, підказка |
+| US-13 (shortcut) | room, httpapi | `TestUS13_PlaceMeepleRejectedUntilImplemented`, `TestSocket_US07_US12_GameErrors` | — |
+| US-14 | room, httpapi | `TestUS14_SkipMeeple`, `TestSocket_US15_US21_FullGame` | Кнопка «Без міпла» |
+| US-15 | room, httpapi | `TestSocket_US15_US21_FullGame` (однаковий знімок у обох гравців 71 хід), `TestUS15_SnapshotIsIndependentCopy` | ≤ 2 с у двох вікнах |
+| US-16 | game, room, httpapi | `TestUS09_DrawTile` (50 → 49), `TestUS14_SkipMeeple`, `TestSocket_US15_US21_FullGame` (`deckCount`, `meeplesInSupply`) | Лічильники на екрані |
+| US-21 (shortcut), `FINISHED` | game, room, httpapi | `TestUS21_EndOfDeck` (game, room), `TestSocket_US15_US21_FullGame` | Екран «Партію завершено» (71 хід — не проходимо) |
+| `ABANDONED` | room, httpapi | `TestAbandoned_DisconnectDuringGame`, `TestUS04_LeaveGrace`, `TestSocket_Abandoned` | «Партію перервано» |
+| US-13 (міпли), US-18…US-23 | game | Наступний інкремент, **тести першими** (AGENTS.md §6) | — |
 
 ## 4. Організація
 
@@ -60,7 +64,7 @@
 | Правило | Як у нашому коді |
 |---|---|
 | Свій стан у кожному тесті | Кожен тест створює `store.NewMemory()`, `room.NewService`, `httptest.NewServer` з `t.Cleanup(srv.Close)`; глобальних змінних у тестах немає |
-| Без очікування виходу з лобі | `LeaveGrace = 0` (`newTestService`, `newTestServer`) |
+| Без очікування виходу з лобі | `LeaveGrace = 0` (`newTestService`, `newTestServer`); сам таймер перевіряє `TestUS04_LeaveGrace` з паузою 50 мс і `select` з `time.After` |
 | Випадковість | `game` отримує `*rand.Rand` параметром — у тестах `rand.New(rand.NewPCG(1, 2))`; у `room` — поле `rng` (тести в тому ж пакеті). Перевіряємо властивості: місця — перестановка 0…n−1, кольори унікальні за П-9, у стопці 71 тайл з кількостями з `tiles.md`; не конкретний порядок |
 | Поле під сценарій | `model.Game` будується хелпером з типів `tiles.md` (стартовий D у (0, 0) + потрібні тайли й `Deck`), а не проходом через випадкову стопку |
 | Без зависань | Без `time.Sleep`. Канали — `select` з `time.After`; WebSocket — `context.WithTimeout` (як у `TestSocket_LobbyUpdates`) |
@@ -73,8 +77,8 @@
 | `npm test` (з кореня) | Go-тести + Vitest, ненульовий код при будь-якому падінні |
 | `npm run test:go` / `go -C server test ./...` | Лише Go |
 | `npm run test:web` / `npm --prefix web test` | Лише Vitest |
-| `go -C server test -race ./...` | Гонки між знімком і станом (`room.snapshot`). Linux/macOS; на Windows без gcc — без `-race` (prompts/5.2) |
-| `go -C server test -cover ./...` | Орієнтир, не ціль. Зараз: `game` 25.6 %, `room` 49.1 %, `httpapi` 57.1 % |
+| `go -C server test -race ./...` | Гонки даних. Linux/macOS; на Windows без gcc — без `-race` (prompts/5.2). Незалежність знімка від стану кімнати `-race` сам не ловить (мутація без `cloneGame` проходила) — її перевіряє `TestUS15_SnapshotIsIndependentCopy` |
+| `go -C server test -cover ./...` | Орієнтир, не ціль. Зараз (після аудиту 6.3): `game` 77.8 %, `room` 86.1 %, `httpapi` 90.5 % |
 
 ## 7. Контроль якості тестів: «зламай код навмисно»
 
