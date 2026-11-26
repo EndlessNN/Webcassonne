@@ -1,10 +1,12 @@
-// Package room — кімнати й лобі: створення (US-01), вхід (US-03), живий список гравців (US-04).
+// Package room — кімнати й лобі: створення (US-01), вхід (US-03), живий список гравців (US-04);
+// партія: старт (US-05), хід (US-07, US-12, US-14), перервана партія (ABANDONED).
 package room
 
 import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	mrand "math/rand/v2"
 	"strings"
 	"sync"
 	"time"
@@ -39,8 +41,8 @@ var (
 type Sub struct {
 	RoomCode string
 	PlayerID string
-	Updates  chan model.Room // буфер 1: у каналі завжди лише найсвіжіший знімок
-	Done     chan struct{}   // закривається, коли гравець підключився з іншої вкладки
+	Updates  chan Snapshot // буфер 1: у каналі завжди лише найсвіжіший знімок
+	Done     chan struct{} // закривається, коли гравець підключився з іншої вкладки
 }
 
 type Service struct {
@@ -49,13 +51,16 @@ type Service struct {
 	store *store.Memory
 	subs  map[string]*Sub // playerID → поточна підписка
 	now   func() time.Time
+	rng   *mrand.Rand // порядок місць і стопка; використовується лише під s.mu
 	// LeaveGrace — скільки чекати повторного підключення, перш ніж прибрати гравця з лобі.
 	// Покриває подвійне монтування React StrictMode; AC US-04 дозволяє до 5 с.
 	LeaveGrace time.Duration
 }
 
 func NewService(s *store.Memory) *Service {
-	return &Service{store: s, subs: map[string]*Sub{}, now: time.Now, LeaveGrace: defaultLeaveGrace}
+	var seed [32]byte
+	_, _ = rand.Read(seed[:]) // crypto/rand.Read з Go 1.24 не повертає помилок
+	return &Service{store: s, subs: map[string]*Sub{}, now: time.Now, rng: mrand.New(mrand.NewChaCha8(seed)), LeaveGrace: defaultLeaveGrace}
 }
 
 // Create створює кімнату з творцем-організатором (US-01).
@@ -91,7 +96,7 @@ func (s *Service) Preview(code string) (model.Room, error) {
 	if !ok {
 		return model.Room{}, ErrRoomNotFound
 	}
-	return snapshot(r), nil
+	return snapshot(r).Room, nil
 }
 
 // Join додає гравця в лобі (US-03).
@@ -157,13 +162,14 @@ func (s *Service) Connect(code, token string) (*Sub, error) {
 	if old := s.subs[p.ID]; old != nil {
 		close(old.Done)
 	}
-	sub := &Sub{RoomCode: code, PlayerID: p.ID, Updates: make(chan model.Room, 1), Done: make(chan struct{})}
+	sub := &Sub{RoomCode: code, PlayerID: p.ID, Updates: make(chan Snapshot, 1), Done: make(chan struct{})}
 	s.subs[p.ID] = sub
 	s.broadcast(r)
 	return sub, nil
 }
 
-// Disconnect знімає підписку. У лобі гравець вибуває, якщо не підключився знову за LeaveGrace.
+// Disconnect знімає підписку. Якщо гравець не підключився знову за LeaveGrace, у лобі він вибуває,
+// а партія в PLAYING переривається (ABANDONED).
 func (s *Service) Disconnect(sub *Sub) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -184,11 +190,22 @@ func (s *Service) Disconnect(sub *Sub) {
 	})
 }
 
-// leave прибирає гравця з лобі, передає роль організатора, видаляє порожню кімнату. Викликати під s.mu.
+// leave прибирає гравця з лобі, передає роль організатора, видаляє порожню кімнату.
+// Під час партії переводить кімнату в ABANDONED; у кінцевих статусах нічого не змінює. Викликати під s.mu.
 func (s *Service) leave(code, playerID string) {
 	r, ok := s.store.Get(code)
-	if !ok || r.Status != model.RoomLobby {
-		return // відключення під час партії — US-05+ (ABANDONED)
+	if !ok {
+		return
+	}
+	switch r.Status {
+	case model.RoomPlaying:
+		r.Status = model.RoomAbandoned
+		r.FinishedAt = s.now()
+		s.broadcast(r)
+		return
+	case model.RoomLobby:
+	default:
+		return
 	}
 	for i, p := range r.Players {
 		if p.ID == playerID {
@@ -252,18 +269,6 @@ func findByToken(r *model.Room, token string) *model.Player {
 		}
 	}
 	return nil
-}
-
-// snapshot копіює кімнату, щоб її можна було читати поза s.mu.
-// shortcut: Game копіюється за вказівником; глибока копія потрібна з US-05.
-func snapshot(r *model.Room) model.Room {
-	c := *r
-	c.Players = make([]*model.Player, len(r.Players))
-	for i, p := range r.Players {
-		pc := *p
-		c.Players[i] = &pc
-	}
-	return c
 }
 
 func randomCode() (string, error) {

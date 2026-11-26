@@ -66,7 +66,8 @@ type Player struct {
 
 type Game struct {
 	Deck        []string // ID типів тайлів; порядок прихований від клієнтів
-	CurrentTile string   // ID типу витягнутого тайла
+	CurrentTile string   // ID типу витягнутого тайла; порожній після кінця стопки
+	Discarded   []string // ID типів, автоматично скинутих під час останнього витягування (US-09)
 	CurrentSeat int
 	Phase       TurnPhase
 	TurnNumber  int

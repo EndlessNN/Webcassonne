@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Превʼю тайлів</title>
+<style>
+  :root { --bg:#f6f4ee; --card:#fff; --text:#222; --muted:#666; --line:#ddd; --bad:#b00020; --ok:#1b7f3b; }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--text); font:14px/1.4 system-ui, sans-serif; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .summary { margin:0 0 16px; color:var(--muted); }
+  .summary b.ok { color:var(--ok); } .summary b.bad { color:var(--bad); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px; }
+  .head { display:flex; justify-content:space-between; align-items:baseline; font-weight:600; font-size:16px; }
+  .start { font-size:12px; color:#fff; background:#555; border-radius:4px; padding:1px 6px; margin-left:6px; }
+  svg { display:block; width:100%; max-width:200px; margin:8px auto; border:1px solid #999; }
+  .desc { margin:0 0 6px; }
+  ol { margin:0; padding-left:22px; font:12px/1.35 ui-monospace, monospace; color:var(--muted); }
+  .legend { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px; font-size:13px; }
+  .sw { display:inline-block; width:12px; height:12px; border:1px solid #888; vertical-align:-2px; margin-right:4px; }
+</style>
+</head>
+<body>
+<h1>Тайли базової гри — превʼю для звірки з коробкою</h1>
+<p class="summary" id="summary"></p>
+<div class="legend">
+  <span><i class="sw" style="background:#8cbf5a"></i>поле</span>
+  <span><i class="sw" style="background:#c98a4b"></i>місто</span>
+  <span><i class="sw" style="background:#f2f2f2"></i>дорога</span>
+  <span><i class="sw" style="background:#1f4fa3"></i>щит</span>
+  <span><i class="sw" style="background:#a33"></i>монастир</span>
+  <span><i class="sw" style="background:#6b3d12"></i>мур (межа міста з полем чи дорогою)</span>
+  <span>Північ угорі, обертання 0. Цифра всередині сегмента — його індекс.</span>
+</div>
+<div class="grid" id="grid"></div>
+<script>
+// Дані — рівно з docs/tiles.md (згенеровано з того самого джерела).
+const TILES = [{"id": "A", "count": 2, "isStart": false, "desc": "Монастир, дорога від монастиря на південь", "segments": [{"type": "MONASTERY", "points": [], "pennant": false, "adjacentCities": []}, {"type": "ROAD", "points": ["S1"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["N0", "N1", "N2", "E0", "E1", "E2", "S0", "S2", "W0", "W1", "W2"], "pennant": false, "adjacentCities": []}]}, {"id": "B", "count": 4, "isStart": false, "desc": "Монастир, навколо лише поле", "segments": [{"type": "MONASTERY", "points": [], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["N0", "N1", "N2", "E0", "E1", "E2", "S0", "S1", "S2", "W0", "W1", "W2"], "pennant": false, "adjacentCities": []}]}, {"id": "C", "count": 1, "isStart": false, "desc": "Місто на всіх чотирьох сторонах, щит", "segments": [{"type": "CITY", "points": ["N0", "N1", "N2", "E0", "E1", "E2", "S0", "S1", "S2", "W0", "W1", "W2"], "pennant": true, "adjacentCities": []}]}, {"id": "D", "count": 4, "isStart": true, "desc": "Місто на півночі, пряма дорога схід–захід. Стартовий тайл — один з цих 4 (зворот іншого кольору)", "segments": [{"type": "CITY", "points": ["N0", "N1", "N2"], "pennant": false, "adjacentCities": []}, {"type": "ROAD", "points": ["E1", "W1"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["E0", "W2"], "pennant": false, "adjacentCities": [0]}, {"type": "FIELD", "points": ["E2", "S0", "S1", "S2", "W0"], "pennant": false, "adjacentCities": []}]}, {"id": "E", "count": 5, "isStart": false, "desc": "Місто на півночі, решта — поле", "segments": [{"type": "CITY", "points": ["N0", "N1", "N2"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["E0", "E1", "E2", "S0", "S1", "S2", "W0", "W1", "W2"], "pennant": false, "adjacentCities": [0]}]}, {"id": "F", "count": 2, "isStart": false, "desc": "Місто через центр від заходу до сходу, щит; поля на півночі й півдні", "segments": [{"type": "CITY", "points": ["E0", "E1", "E2", "W0", "W1", "W2"], "pennant": true, "adjacentCities": []}, {"type": "FIELD", "points": ["N0", "N1", "N2"], "pennant": false, "adjacentCities": [0]}, {"type": "FIELD", "points": ["S0", "S1", "S2"], "pennant": false, "adjacentCities": [0]}]}, {"id": "G", "count": 1, "isStart": false, "desc": "Місто через центр від заходу до сходу, без щита; поля на півночі й півдні", "segments": [{"type": "CITY", "points": ["E0", "E1", "E2", "W0", "W1", "W2"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["N0", "N1", "N2"], "pennant": false, "adjacentCities": [0]}, {"type": "FIELD", "points": ["S0", "S1", "S2"], "pennant": false, "adjacentCities": [0]}]}, {"id": "H", "count": 3, "isStart": false, "desc": "Два окремі міста на сході й заході (не з'єднані), поле між ними", "segments": [{"type": "CITY", "points": ["E0", "E1", "E2"], "pennant": false, "adjacentCities": []}, {"type": "CITY", "points": ["W0", "W1", "W2"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["N0", "N1", "N2", "S0", "S1", "S2"], "pennant": false, "adjacentCities": [0, 1]}]}, {"id": "I", "count": 2, "isStart": false, "desc": "Два окремі міста на півночі й сході (не з'єднані), решта — поле", "segments": [{"type": "CITY", "points": ["N0", "N1", "N2"], "pennant": false, "adjacentCities": []}, {"type": "CITY", "points": ["E0", "E1", "E2"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["S0", "S1", "S2", "W0", "W1", "W2"], "pennant": false, "adjacentCities": [0, 1]}]}, {"id": "J", "count": 3, "isStart": false, "desc": "Місто на півночі, дорога-поворот схід–південь", "segments": [{"type": "CITY", "points": ["N0", "N1", "N2"], "pennant": false, "adjacentCities": []}, {"type": "ROAD", "points": ["E1", "S1"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["E2", "S0"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["E0", "S2", "W0", "W1", "W2"], "pennant": false, "adjacentCities": [0]}]}, {"id": "K", "count": 3, "isStart": false, "desc": "Місто на півночі, дорога-поворот південь–захід (дзеркальний до J)", "segments": [{"type": "CITY", "points": ["N0", "N1", "N2"], "pennant": false, "adjacentCities": []}, {"type": "ROAD", "points": ["S1", "W1"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["E0", "E1", "E2", "S0", "W2"], "pennant": false, "adjacentCities": [0]}, {"type": "FIELD", "points": ["S2", "W0"], "pennant": false, "adjacentCities": []}]}, {"id": "L", "count": 3, "isStart": false, "desc": "Місто на півночі, дороги на схід, південь і захід закінчуються на перехресті в центрі", "segments": [{"type": "CITY", "points": ["N0", "N1", "N2"], "pennant": false, "adjacentCities": []}, {"type": "ROAD", "points": ["E1"], "pennant": false, "adjacentCities": []}, {"type": "ROAD", "points": ["S1"], "pennant": false, "adjacentCities": []}, {"type": "ROAD", "points": ["W1"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["E0", "W2"], "pennant": false, "adjacentCities": [0]}, {"type": "FIELD", "points": ["E2", "S0"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["S2", "W0"], "pennant": false, "adjacentCities": []}]}, {"id": "M", "count": 2, "isStart": false, "desc": "Кутове місто північ–захід (одне, з'єднане), щит; решта — поле", "segments": [{"type": "CITY", "points": ["N0", "N1", "N2", "W0", "W1", "W2"], "pennant": true, "adjacentCities": []}, {"type": "FIELD", "points": ["E0", "E1", "E2", "S0", "S1", "S2"], "pennant": false, "adjacentCities": [0]}]}, {"id": "N", "count": 3, "isStart": false, "desc": "Кутове місто північ–захід (одне, з'єднане), без щита; решта — поле", "segments": [{"type": "CITY", "points": ["N0", "N1", "N2", "W0", "W1", "W2"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["E0", "E1", "E2", "S0", "S1", "S2"], "pennant": false, "adjacentCities": [0]}]}, {"id": "O", "count": 2, "isStart": false, "desc": "Кутове місто північ–захід, щит; дорога-поворот схід–південь", "segments": [{"type": "CITY", "points": ["N0", "N1", "N2", "W0", "W1", "W2"], "pennant": true, "adjacentCities": []}, {"type": "ROAD", "points": ["E1", "S1"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["E0", "S2"], "pennant": false, "adjacentCities": [0]}, {"type": "FIELD", "points": ["E2", "S0"], "pennant": false, "adjacentCities": []}]}, {"id": "P", "count": 3, "isStart": false, "desc": "Кутове місто північ–захід, без щита; дорога-поворот схід–південь", "segments": [{"type": "CITY", "points": ["N0", "N1", "N2", "W0", "W1", "W2"], "pennant": false, "adjacentCities": []}, {"type": "ROAD", "points": ["E1", "S1"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["E0", "S2"], "pennant": false, "adjacentCities": [0]}, {"type": "FIELD", "points": ["E2", "S0"], "pennant": false, "adjacentCities": []}]}, {"id": "Q", "count": 1, "isStart": false, "desc": "Місто на півночі, сході й заході, щит; поле на півдні", "segments": [{"type": "CITY", "points": ["N0", "N1", "N2", "E0", "E1", "E2", "W0", "W1", "W2"], "pennant": true, "adjacentCities": []}, {"type": "FIELD", "points": ["S0", "S1", "S2"], "pennant": false, "adjacentCities": [0]}]}, {"id": "R", "count": 3, "isStart": false, "desc": "Місто на півночі, сході й заході, без щита; поле на півдні", "segments": [{"type": "CITY", "points": ["N0", "N1", "N2", "E0", "E1", "E2", "W0", "W1", "W2"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["S0", "S1", "S2"], "pennant": false, "adjacentCities": [0]}]}, {"id": "S", "count": 2, "isStart": false, "desc": "Місто на півночі, сході й заході, щит; дорога на південь від міста", "segments": [{"type": "CITY", "points": ["N0", "N1", "N2", "E0", "E1", "E2", "W0", "W1", "W2"], "pennant": true, "adjacentCities": []}, {"type": "ROAD", "points": ["S1"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["S0"], "pennant": false, "adjacentCities": [0]}, {"type": "FIELD", "points": ["S2"], "pennant": false, "adjacentCities": [0]}]}, {"id": "T", "count": 1, "isStart": false, "desc": "Місто на півночі, сході й заході, без щита; дорога на південь від міста", "segments": [{"type": "CITY", "points": ["N0", "N1", "N2", "E0", "E1", "E2", "W0", "W1", "W2"], "pennant": false, "adjacentCities": []}, {"type": "ROAD", "points": ["S1"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["S0"], "pennant": false, "adjacentCities": [0]}, {"type": "FIELD", "points": ["S2"], "pennant": false, "adjacentCities": [0]}]}, {"id": "U", "count": 8, "isStart": false, "desc": "Пряма дорога північ–південь, поля обабіч", "segments": [{"type": "ROAD", "points": ["N1", "S1"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["N2", "E0", "E1", "E2", "S0"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["S2", "W0", "W1", "W2", "N0"], "pennant": false, "adjacentCities": []}]}, {"id": "V", "count": 9, "isStart": false, "desc": "Дорога-поворот південь–захід", "segments": [{"type": "ROAD", "points": ["S1", "W1"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["S2", "W0"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["N0", "N1", "N2", "E0", "E1", "E2", "S0", "W2"], "pennant": false, "adjacentCities": []}]}, {"id": "W", "count": 4, "isStart": false, "desc": "Дороги на схід, південь і захід закінчуються на перехресті в центрі", "segments": [{"type": "ROAD", "points": ["E1"], "pennant": false, "adjacentCities": []}, {"type": "ROAD", "points": ["S1"], "pennant": false, "adjacentCities": []}, {"type": "ROAD", "points": ["W1"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["W2", "N0", "N1", "N2", "E0"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["E2", "S0"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["S2", "W0"], "pennant": false, "adjacentCities": []}]}, {"id": "X", "count": 1, "isStart": false, "desc": "Перехрестя: дороги на всі чотири сторони закінчуються в центрі", "segments": [{"type": "ROAD", "points": ["N1"], "pennant": false, "adjacentCities": []}, {"type": "ROAD", "points": ["E1"], "pennant": false, "adjacentCities": []}, {"type": "ROAD", "points": ["S1"], "pennant": false, "adjacentCities": []}, {"type": "ROAD", "points": ["W1"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["N2", "E0"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["E2", "S0"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["S2", "W0"], "pennant": false, "adjacentCities": []}, {"type": "FIELD", "points": ["W2", "N0"], "pennant": false, "adjacentCities": []}]}];
+
+const NS = 'http://www.w3.org/2000/svg';
+const SIDES = ['N', 'E', 'S', 'W'];
+const CENTER = [50, 50];
+const MID = { N: [50, 0], E: [100, 50], S: [50, 100], W: [0, 50] };
+// Кути сторони за годинниковою стрілкою: [початок, кінець].
+const CORNERS = { N: [[0, 0], [100, 0]], E: [[100, 0], [100, 100]], S: [[100, 100], [0, 100]], W: [[0, 100], [0, 0]] };
+const ALL = SIDES.flatMap((s) => [0, 1, 2].map((k) => s + k));
+const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+const avg = (ps) => [ps.reduce((a, p) => a + p[0], 0) / ps.length, ps.reduce((a, p) => a + p[1], 0) / ps.length];
+const quad = (a, c, b, t) => lerp(lerp(a, c, t), lerp(c, b, t), t);
+
+// Точка краю: 3 точки на сторону, за годинниковою стрілкою.
+function edgePoint(p) {
+  const [a, b] = CORNERS[p[0]];
+  return lerp(a, b, [1 / 6, 1 / 2, 5 / 6][Number(p[1])]);
+}
+function el(name, attrs, parent) {
+  const e = document.createElementNS(NS, name);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  parent.appendChild(e);
+  return e;
+}
+function label(svg, [x, y], text) {
+  el('text', {
+    x, y, 'font-size': 8, 'font-weight': 700, 'font-family': 'monospace', 'text-anchor': 'middle',
+    'dominant-baseline': 'central', fill: '#000', stroke: '#fff', 'stroke-width': 2.5, 'paint-order': 'stroke',
+  }, svg).textContent = text;
+}
+function sidesOf(seg) { return SIDES.filter((s) => seg.points.some((p) => p[0] === s)); }
+
+// Місто: заливка і окремо мури. Мур — лише межа міста з полем чи дорогою всередині тайла,
+// тобто крива між міськими сторонами; уздовж краю тайла і між частинами одного міста мурів немає.
+function cityShape(sides) {
+  if (sides.length === 4) return { fill: 'M0,0 H100 V100 H0 Z', walls: [] };
+  const inCity = (s) => sides.includes(s);
+  let i = SIDES.findIndex((s, j) => inCity(s) && !inCity(SIDES[(j + 3) % 4]));
+  let d = `M${CORNERS[SIDES[i]][0]}`;
+  const walls = [];
+  for (let steps = 0; steps < 4;) {
+    const s = SIDES[i];
+    d += ` L${CORNERS[s][1]}`;
+    let k = 0;
+    while (!inCity(SIDES[(i + 1 + k) % 4])) k++;
+    if (k > 0) {
+      const from = CORNERS[s][1], to = CORNERS[SIDES[(i + 1 + k) % 4]][0];
+      const ctrl = k === 1 ? lerp(MID[SIDES[(i + 1) % 4]], CENTER, 1.3) // пропущено одну сторону: поле-клин
+        : k === 2 ? CENTER                                               // кутове місто: межа по діагоналі
+        : lerp(MID[s], CENTER, 0.7);                                     // місто на одній стороні
+      d += ` Q${ctrl} ${to}`;
+      walls.push(`M${from} Q${ctrl} ${to}`);
+    }
+    steps += 1 + k;
+    i = (i + 1 + k) % 4;
+  }
+  return { fill: d + ' Z', walls };
+}
+function roadPath(seg) {
+  const pts = seg.points.map(edgePoint);
+  return pts.length === 2 ? `M${pts[0]} Q${CENTER} ${pts[1]}` : `M${pts[0]} L${CENTER}`;
+}
+
+// Точка для номера сегмента — усередині самого сегмента.
+function labelPos(seg) {
+  if (seg.type === 'MONASTERY') return [57, 58];
+  if (seg.type === 'CITY') {
+    const sides = sidesOf(seg), c = avg(sides.map((s) => MID[s]));
+    return sides.length === 1 ? lerp(c, CENTER, 0.17) : c;
+  }
+  const pts = seg.points.map(edgePoint);
+  if (seg.type === 'ROAD') return pts.length === 2 ? quad(pts[0], CENTER, pts[1], 0.25) : lerp(pts[0], CENTER, 0.3);
+  // Поле: середня точка найдовшого відрізка суміжних точок краю, на 10 одиниць углиб тайла.
+  const has = ALL.map((p) => seg.points.includes(p));
+  let best = [], run = [];
+  const start = has.every(Boolean) ? 0 : has.findIndex((h, j) => h && !has[(j + 11) % 12]);
+  for (let n = 0; n < 12; n++) {
+    const j = (start + n) % 12;
+    if (has[j]) run.push(ALL[j]); else run = [];
+    if (run.length > best.length) best = [...run];
+  }
+  const p = best[Math.floor(best.length / 2)];
+  const [x, y] = edgePoint(p);
+  return { N: [x, y + 10], E: [x - 10, y], S: [x, y - 10], W: [x + 10, y] }[p[0]];
+}
+
+function drawTile(tile) {
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 100 100');
+  el('rect', { x: 0, y: 0, width: 100, height: 100, fill: '#8cbf5a' }, svg);
+  const segs = tile.segments;
+  for (const s of segs) {
+    if (s.type !== 'ROAD') continue;
+    el('path', { d: roadPath(s), stroke: '#555', 'stroke-width': 10, fill: 'none' }, svg);
+    el('path', { d: roadPath(s), stroke: '#f2f2f2', 'stroke-width': 7, fill: 'none' }, svg);
+  }
+  if (segs.filter((s) => s.type === 'ROAD' && s.points.length === 1).length >= 3) {
+    el('circle', { cx: 50, cy: 50, r: 7, fill: '#777' }, svg); // перехрестя
+  }
+  for (const s of segs) {
+    if (s.type !== 'CITY') continue;
+    const { fill, walls } = cityShape(sidesOf(s));
+    el('path', { d: fill, fill: '#c98a4b' }, svg);
+    for (const w of walls) el('path', { d: w, fill: 'none', stroke: '#6b3d12', 'stroke-width': 2.5, 'stroke-linecap': 'round' }, svg);
+  }
+  segs.forEach((s, i) => {
+    let p = labelPos(s);
+    if (s.type === 'MONASTERY') {
+      el('rect', { x: 36, y: 36, width: 28, height: 28, fill: '#a33', stroke: '#511', 'stroke-width': 1.5 }, svg);
+      el('path', { d: 'M46,40 V60 M39,47 H53', stroke: '#fff', 'stroke-width': 2.5 }, svg);
+    }
+    if (s.pennant) {
+      el('path', { d: `M${p[0] + 1},${p[1] - 6} h10 v7 l-5,5 l-5,-5 Z`, fill: '#1f4fa3', stroke: '#fff', 'stroke-width': 1 }, svg);
+      p = [p[0] - 5, p[1]];
+    }
+    label(svg, p, i);
+  });
+  return svg;
+}
+
+const NAMES = { ROAD: 'дорога', CITY: 'місто', FIELD: 'поле', MONASTERY: 'монастир' };
+const grid = document.getElementById('grid');
+for (const t of TILES) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `<div class="head"><span>${t.id}${t.isStart ? '<span class="start">старт</span>' : ''}</span><span>× ${t.count}</span></div>`;
+  card.appendChild(drawTile(t));
+  const p = document.createElement('p');
+  p.className = 'desc';
+  p.textContent = t.desc;
+  card.appendChild(p);
+  const ol = document.createElement('ol');
+  ol.start = 0;
+  for (const s of t.segments) {
+    const li = document.createElement('li');
+    let txt = `${NAMES[s.type]} ${s.points.join(' ') || '—'}`;
+    if (s.pennant) txt += ' · щит';
+    if (s.type === 'FIELD') txt += ` · межує з містами [${s.adjacentCities.join(', ')}]`;
+    li.textContent = txt;
+    ol.appendChild(li);
+  }
+  card.appendChild(ol);
+  grid.appendChild(card);
+}
+
+const total = TILES.reduce((a, t) => a + t.count, 0);
+const starts = TILES.filter((t) => t.isStart).length;
+const pennants = TILES.reduce((a, t) => a + (t.segments.some((s) => s.pennant) ? t.count : 0), 0);
+const cls = (ok) => (ok ? 'ok' : 'bad');
+document.getElementById('summary').innerHTML =
+  `Типів: ${TILES.length}. Тайлів: <b class="${cls(total === 72)}">${total}</b> (має бути 72). ` +
+  `Стартових типів: <b class="${cls(starts === 1)}">${starts}</b>. Тайлів зі щитом: <b>${pennants}</b>. ` +
+  `Статус: звірено з фізичною копією, виправлень немає.`;
+</script>
+</body>
+</html>

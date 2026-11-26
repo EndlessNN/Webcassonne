@@ -4,7 +4,7 @@
 > Типи клієнта: [`web/src/api/types.ts`](../web/src/api/types.ts). Зміна контракту — спершу тут, потім сервер і клієнт в одному коміті.
 > Промпт: [prompts/4.3_technical_contracts.md](../prompts/4.3_technical_contracts.md).
 
-Базовий шлях: `/api`. Формат: JSON, UTF-8, поля в `camelCase`. Статус реалізації: ✅ є в каркасі, ⏳ реалізується разом з історією.
+Базовий шлях: `/api`. Формат: JSON, UTF-8, поля в `camelCase`. Статус реалізації: ✅ реалізовано, ⏳ реалізується разом з історією. Shortcut — реалізовано спрощено до вказаної історії.
 
 ---
 
@@ -32,23 +32,43 @@
 
 | Код | HTTP | Де | Коли | Історія |
 |---|---|---|---|---|
-| `VALIDATION_ERROR` | 400 | REST, WS | Нікнейм не 1–20 символів, неправильний JSON або поля | US-01, US-03 |
+| `VALIDATION_ERROR` | 400 | REST, WS | Нікнейм не 1–20 символів, неправильний JSON або поля; у WS також невідомий `type` і `rotation` поза {0, 90, 180, 270} | US-01, US-03, US-12 |
 | `INVALID_TOKEN` | 401 | WS handshake | Токен відсутній або не належить кімнаті | — |
 | `NOT_FOUND` | 404 | REST | Невідомий ендпоінт | — |
 | `ROOM_NOT_FOUND` | 404 | REST, WS | Кімнати з таким кодом немає | US-03 |
 | `ROOM_FULL` | 409 | REST | У кімнаті вже 5 гравців | US-03 |
-| `GAME_ALREADY_STARTED` | 409 | REST | Статус кімнати не `LOBBY` | US-03 |
+| `GAME_ALREADY_STARTED` | 409 | REST, WS | Статус кімнати не `LOBBY`: вхід у кімнату або повторний `start_game` | US-03, US-05 |
 | `NICKNAME_TAKEN` | 409 | REST | Нікнейм уже є в кімнаті (без урахування регістру) | US-03 |
 | `NOT_HOST` | — | WS | `start_game` надіслав не організатор | US-05 |
 | `NOT_ENOUGH_PLAYERS` | — | WS | `start_game` при 1 гравці | US-05 |
 | `NOT_YOUR_TURN` | — | WS | Дію надіслав не активний гравець | US-07 |
-| `WRONG_PHASE` | — | WS | Дія не відповідає фазі (напр. `place_meeple` у `PLACE_TILE`) | US-12…US-14 |
+| `WRONG_PHASE` | — | WS | Дія не відповідає фазі або статусу кімнати (напр. `place_meeple` у `PLACE_TILE`, `place_tile` у `LOBBY`, будь-яка ігрова дія у `FINISHED`/`ABANDONED`) | US-12…US-14 |
 | `ILLEGAL_PLACEMENT` | — | WS | Клітинка зайнята, без сусідів або сторони не збігаються | US-12 |
 | `ILLEGAL_MEEPLE` | — | WS | Сегмент не з `legalMeepleSegments` | US-13 |
 | `NO_MEEPLES_LEFT` | — | WS | У гравця 0 міплів у запасі | US-13 |
 | `INTERNAL` | 500 | REST, WS | Непередбачена помилка сервера (деталі лише в лозі) | — |
 
 WS-помилки надсилаються лише автору дії і не змінюють стан гри.
+
+### ✅ Порядок перевірок і тексти WS-помилок (US-05…US-14)
+
+Сервер перевіряє дію в такому порядку і повертає першу помилку: формат повідомлення → статус кімнати → автор (організатор / активний гравець) → фаза → правило гри. Тому, напр., `place_tile` не у свій хід завжди дає `NOT_YOUR_TURN`, навіть якщо клітинка ще й зайнята.
+
+| Код | `message` | Коли |
+|---|---|---|
+| `VALIDATION_ERROR` | `Невідомий тип повідомлення` | `type` не з таблиці «Клієнт → сервер» |
+| `VALIDATION_ERROR` | `Неправильне повідомлення` | Неправильний JSON, відсутні або зайві поля, `rotation` поза {0, 90, 180, 270} |
+| `GAME_ALREADY_STARTED` | `Партія вже почалася` | `start_game` не в `LOBBY` |
+| `NOT_HOST` | `Почати гру може лише організатор` | `start_game` від не організатора |
+| `NOT_ENOUGH_PLAYERS` | `Потрібно щонайменше 2 гравці` | `start_game` при 1 гравці (текст — з AC US-05) |
+| `WRONG_PHASE` | `Ця дія зараз недоступна` | Ігрова дія не в `PLAYING` або не в тій фазі |
+| `NOT_YOUR_TURN` | `Зараз хід іншого гравця` | Ігрова дія від неактивного гравця (US-07) |
+| `ILLEGAL_PLACEMENT` | `Клітинка вже зайнята` | `place_tile` на клітинку з тайлом |
+| `ILLEGAL_PLACEMENT` | `Тайл має межувати з іншим тайлом` | `place_tile` на клітинку без сусідів (AC US-12 «Клітинка без сусідів») |
+| `ILLEGAL_PLACEMENT` | `Сторони тайлів мають збігатися` | Хоча б одна суміжна сторона не збігається (текст — з AC US-12) |
+| `ILLEGAL_MEEPLE` | `Міпла не можна поставити на цей сегмент` | `place_meeple` із сегментом не з `legalMeepleSegments` |
+
+**Shortcut до US-13:** поки міплів немає, `legalMeepleSegments` завжди `[]`, тож будь-який `place_meeple` у фазі `PLACE_MEEPLE` отримує `ILLEGAL_MEEPLE`. Хід завершується лише через `skip_meeple`.
 
 ---
 
@@ -86,6 +106,28 @@ WS-помилки надсилаються лише автору дії і не 
 
 Помилки: `404 ROOM_NOT_FOUND`.
 
+### ✅ `GET /api/tiles` — каталог типів тайлів (US-06, US-09)
+
+Статичний каталог з [docs/tiles.md](tiles.md) у форматі [TileType](data-model.md#tiletype-статичний-каталог). Клієнт малює тайли схематично із сегментів і не тримає власної копії каталогу. Склад стопки не таємний; таємний лише її порядок.
+
+`200 OK`
+```json
+{
+  "tiles": [
+    {
+      "id": "D", "count": 4, "isStart": true,
+      "segments": [
+        { "type": "CITY", "points": ["N0", "N1", "N2"], "pennant": false, "adjacentCities": [] },
+        { "type": "ROAD", "points": ["E1", "W1"], "pennant": false, "adjacentCities": [] },
+        { "type": "FIELD", "points": ["E0", "W2"], "pennant": false, "adjacentCities": [0] },
+        { "type": "FIELD", "points": ["E2", "S0", "S1", "S2", "W0"], "pennant": false, "adjacentCities": [] }
+      ]
+    }
+  ]
+}
+```
+Приклад показує формат, а не дані: вміст — лише з `docs/tiles.md`.
+
 ### ✅ `POST /api/rooms/{code}/players` — приєднатися (US-03)
 
 Запит:
@@ -104,13 +146,14 @@ WS-помилки надсилаються лише автору дії і не 
 
 ## 3. WebSocket
 
-### ✅ `GET /api/rooms/{code}/ws?token={token}` — канал кімнати (лобі US-04 ✅; гра US-05…US-23 ⏳)
+### ✅ `GET /api/rooms/{code}/ws?token={token}` — канал кімнати (лобі US-04 ✅; хід без міплів US-05…US-12, US-14…US-16 ✅; міпли US-13 і підрахунок US-18…US-23 ⏳)
 
 - Успіх: `101 Switching Protocols`, одразу після підключення сервер надсилає `room_state`.
 - Відмова до апгрейду: `401 INVALID_TOKEN`, `404 ROOM_NOT_FOUND` (REST-формат помилки).
 - Повторне підключення з тим самим токеном (друга вкладка) закриває попереднє з'єднання.
-- Поки не реалізовано US-05, будь-яке повідомлення від клієнта отримує `error` з кодом `VALIDATION_ERROR`.
-- Закриття з'єднання: у `LOBBY` гравець видаляється з кімнати, якщо не підключився знову за 2 с (покриває подвійне монтування React StrictMode; AC US-04 дозволяє до 5 с). Якщо вийшов організатор, ним стає гравець, що приєднався найраніше (П-8); порожня кімната видаляється; у `PLAYING` кімната переходить в `ABANDONED`.
+- Повідомлення з невідомим `type` отримує `error` з кодом `VALIDATION_ERROR` (див. «Порядок перевірок» у §1).
+- Закриття з'єднання: у `LOBBY` гравець видаляється з кімнати, якщо не підключився знову за 2 с (покриває подвійне монтування React StrictMode; AC US-04 дозволяє до 5 с). Якщо вийшов організатор, ним стає гравець, що приєднався найраніше (П-8); порожня кімната видаляється.
+- ✅ У `PLAYING` після тих самих 2 с без повторного підключення кімната переходить в `ABANDONED`: гравець лишається в `players`, `finishedAt` заповнюється, усім підключеним приходить `room_state`, після чого будь-яка ігрова дія отримує `WRONG_PHASE`. Клієнт показує «Партію перервано» (G-2). У `FINISHED` і `ABANDONED` закриття з'єднання стан не змінює.
 
 Кожне повідомлення — JSON з полем `type`.
 
@@ -152,6 +195,7 @@ WS-помилки надсилаються лише автору дії і не 
       "currentPlayerId": "b72e…",
       "deckCount": 62,
       "currentTile": { "tileTypeId": "D" },
+      "discardedTiles": [],
       "legalPlacements": [ { "x": 1, "y": 0, "rotations": [0, 180] } ],
       "legalMeepleSegments": [],
       "tiles": [ { "x": 0, "y": 0, "tileTypeId": "D", "rotation": 0 } ],
@@ -169,11 +213,16 @@ WS-помилки надсилаються лише автору дії і не 
 | `players[].score` | US-20 | Сума `ScoreEntry` |
 | `game` | US-06 | `null` у `LOBBY` |
 | `game.currentPlayerId` | US-07 | |
-| `game.deckCount` | US-16 | Довжина стопки без поточного тайла |
-| `game.currentTile` | US-09 | Бачать усі; `null` після кінця стопки |
-| `game.legalPlacements` | US-11 | Лише у фазі `PLACE_TILE`, для всіх 4 обертань; інакше `[]` |
-| `game.legalMeepleSegments` | US-13 | Лише у фазі `PLACE_MEEPLE`, сегменти щойно покладеного тайла; інакше `[]` |
+| `game.turnNumber` | US-07 | Перший хід — 1; зростає, коли хід переходить до наступного гравця. Стартовий тайл має `turnNumber` 0 |
+| `game.deckCount` | US-16 | Довжина стопки без поточного тайла. Одразу після `start_game` — 70: з 71 тайла один уже в першого гравця (AC US-05); так само, як 50 → 49 в AC US-09 |
+| `game.currentTile` | US-09 | Бачать усі; `null` після кінця стопки і в `ABANDONED` |
+| `game.discardedTiles` | US-09, US-21 | Тайли (`{ "tileTypeId" }`), які сервер автоматично скинув під час останнього витягування, бо їх неможливо покласти; інакше `[]`. Непорожній масив — сигнал клієнту показати «Тайл неможливо покласти, береться новий». Очищується на наступному витягуванні |
+| `game.legalPlacements` | US-11 | Лише у фазі `PLACE_TILE` статусу `PLAYING`, для всіх 4 обертань; інакше `[]` |
+| `game.legalMeepleSegments` | US-13 | Лише у фазі `PLACE_MEEPLE`, сегменти щойно покладеного тайла; інакше `[]`. Shortcut до US-13: завжди `[]` |
+| `game.phase`, `game.currentPlayerId` | US-07 | У `FINISHED` і `ABANDONED` лишаються значеннями на момент завершення; UI спершу дивиться на `room.status` |
 | `game.finalScores` | US-21…US-23 | Не `null` лише при `FINISHED` |
+
+✅ **Кінець стопки (shortcut до US-21–US-23).** Якщо після `skip_meeple` стопка порожня або всі тайли, що лишилися, автоматично скинуто (AC US-21 «Останній тайл скинуто»), кімната переходить у `FINISHED`: `currentTile = null`, `deckCount = 0`, `finalScores` — рядок на кожного гравця з нулями в усіх категоріях і `winner: true` у всіх (нічия на 0, бо підрахунку ще немає). З US-18 і US-21–US-23 нулі замінить справжній підрахунок; формат не зміниться.
 
 `finalScores`:
 ```json
@@ -205,7 +254,8 @@ WS-помилки надсилаються лише автору дії і не 
 | US-05 | WS `start_game` |
 | US-06, US-07, US-15 | WS `room_state.game` |
 | US-08, US-10 | Лише клієнт |
-| US-09, US-16 | `currentTile`, `deckCount`, `meeplesInSupply` |
+| US-06 | `GET /api/tiles`, `room_state.game.tiles` |
+| US-09, US-16 | `currentTile`, `discardedTiles`, `deckCount`, `meeplesInSupply` |
 | US-11, US-12 | `legalPlacements`, `place_tile` |
 | US-13, US-14 | `legalMeepleSegments`, `place_meeple`, `skip_meeple` |
 | US-18, US-19, US-20 | `players[].score`, зменшення `meeples` |

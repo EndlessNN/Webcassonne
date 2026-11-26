@@ -51,7 +51,7 @@ type roomView struct {
 	HostPlayerID string           `json:"hostPlayerId"`
 	YouPlayerID  string           `json:"youPlayerId"`
 	Players      []playerView     `json:"players"`
-	Game         any              `json:"game"` // null до US-05
+	Game         *gameView        `json:"game"` // null у LOBBY
 }
 
 type playerView struct {
@@ -151,7 +151,7 @@ func joinRoom(rooms *room.Service) http.HandlerFunc {
 	}
 }
 
-// roomSocket — канал кімнати: надсилає room_state після кожної зміни (US-04).
+// roomSocket — канал кімнати: надсилає room_state після кожної зміни (US-04, US-15) і приймає дії гравця (US-05…US-14).
 func roomSocket(rooms *room.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		code := r.PathValue("code")
@@ -175,18 +175,20 @@ func roomSocket(rooms *room.Service) http.HandlerFunc {
 
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
-		unknownMessage := make(chan struct{}, 1)
+		actionErrors := make(chan APIError, 1) // помилка дії — лише автору; успіх приходить знімком через sub.Updates
 		go func() {
 			defer cancel()
 			for {
-				if _, _, err := conn.Read(ctx); err != nil {
+				_, data, err := conn.Read(ctx)
+				if err != nil {
 					return
 				}
-				// Клієнтські повідомлення (start_game тощо) з'являються з US-05.
-				select {
-				case unknownMessage <- struct{}{}:
-				case <-ctx.Done():
-					return
+				if err := handleMessage(rooms, sub, data); err != nil {
+					select {
+					case actionErrors <- wsError(err):
+					case <-ctx.Done():
+						return
+					}
 				}
 			}
 		}()
@@ -198,9 +200,9 @@ func roomSocket(rooms *room.Service) http.HandlerFunc {
 			case <-sub.Done:
 				conn.Close(websocket.StatusPolicyViolation, "підключено з іншої вкладки")
 				return
-			case <-unknownMessage:
+			case apiErr := <-actionErrors:
 				wctx, wcancel := context.WithTimeout(ctx, 5*time.Second)
-				err := wsjson.Write(wctx, conn, errorMessage{Type: "error", Error: APIError{Code: "VALIDATION_ERROR", Message: "Невідомий тип повідомлення"}})
+				err := wsjson.Write(wctx, conn, errorMessage{Type: "error", Error: apiErr})
 				wcancel()
 				if err != nil {
 					return
@@ -217,10 +219,11 @@ func roomSocket(rooms *room.Service) http.HandlerFunc {
 	}
 }
 
-func toRoomView(r model.Room, you string) roomView {
-	v := roomView{Code: r.Code, Status: r.Status, HostPlayerID: r.HostPlayerID, YouPlayerID: you, Players: make([]playerView, len(r.Players))}
+func toRoomView(snap room.Snapshot, you string) roomView {
+	r := snap.Room
+	v := roomView{Code: r.Code, Status: r.Status, HostPlayerID: r.HostPlayerID, YouPlayerID: you, Players: make([]playerView, len(r.Players)), Game: toGameView(snap)}
 	for i, p := range r.Players {
-		pv := playerView{ID: p.ID, Nickname: p.Nickname, MeeplesInSupply: model.MeeplesPerPlayer}
+		pv := playerView{ID: p.ID, Nickname: p.Nickname, MeeplesInSupply: snap.MeeplesInSupply[p.ID]} // score — 0 до US-18/US-20
 		if p.Color != "" {
 			pv.Color = &p.Color
 		}

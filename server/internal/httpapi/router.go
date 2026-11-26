@@ -25,6 +25,7 @@ func NewRouter(s *store.Memory, rooms *room.Service, static http.Handler) http.H
 	mux.HandleFunc("GET /api/rooms/{code}", previewRoom(rooms))
 	mux.HandleFunc("POST /api/rooms/{code}/players", joinRoom(rooms))
 	mux.HandleFunc("GET /api/rooms/{code}/ws", roomSocket(rooms))
+	mux.HandleFunc("GET /api/tiles", listTiles)
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, HealthResponse{
 			Status:  "ok",

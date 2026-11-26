@@ -1,10 +1,12 @@
 import type {
   ApiError,
+  ClientMessage,
   CreateRoomResponse,
   HealthResponse,
   JoinRoomResponse,
   RoomPreview,
   ServerMessage,
+  TilesResponse,
 } from './types'
 
 // Помилка API у єдиному форматі docs/api.md §1.
@@ -51,5 +53,9 @@ export function openRoomSocket(code: string, token: string, onMessage: (m: Serve
   ws.onmessage = (e: MessageEvent<string>) => onMessage(JSON.parse(e.data) as ServerMessage)
   return ws
 }
+
+export const sendMessage = (ws: WebSocket, m: ClientMessage) => ws.send(JSON.stringify(m))
+
+export const getTiles = () => request<TilesResponse>('/api/tiles')
 
 export const inviteLink = (code: string) => `${location.origin}/r/${code}`
