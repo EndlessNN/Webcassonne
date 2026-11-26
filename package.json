@@ -1,0 +1,10 @@
+{
+  "name": "webcassonne",
+  "private": true,
+  "description": "Лише скрипти для запуску всіх тестів однією командою (ADR-0006). Залежностей немає.",
+  "scripts": {
+    "test": "npm run test:go && npm run test:web",
+    "test:go": "go -C server test ./...",
+    "test:web": "npm --prefix web test"
+  }
+}
