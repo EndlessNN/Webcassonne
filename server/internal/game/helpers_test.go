@@ -30,11 +30,18 @@ type gameSnapshot struct {
 	seat        int
 	phase       model.TurnPhase
 	turn        int
-	lastPlaced  *model.Position
+	lastPlaced  *model.Position // копія значення, а не вказівник гри
 	tiles       map[model.Position]model.PlacedTile
+	meeples     []model.Meeple
+	scores      []model.ScoreEntry
 }
 
 func snapshotOf(g *model.Game) gameSnapshot {
+	var last *model.Position
+	if g.LastPlaced != nil {
+		p := *g.LastPlaced
+		last = &p
+	}
 	return gameSnapshot{
 		deck:        slices.Clone(g.Deck),
 		currentTile: g.CurrentTile,
@@ -42,8 +49,10 @@ func snapshotOf(g *model.Game) gameSnapshot {
 		seat:        g.CurrentSeat,
 		phase:       g.Phase,
 		turn:        g.TurnNumber,
-		lastPlaced:  g.LastPlaced,
+		lastPlaced:  last,
 		tiles:       maps.Clone(g.Tiles),
+		meeples:     slices.Clone(g.Meeples),
+		scores:      slices.Clone(g.Scores),
 	}
 }
 
@@ -53,8 +62,13 @@ func assertUnchanged(t *testing.T, before gameSnapshot, g *model.Game) {
 	after := snapshotOf(g)
 	if !slices.Equal(before.deck, after.deck) || before.currentTile != after.currentTile ||
 		!slices.Equal(before.discarded, after.discarded) || before.seat != after.seat ||
-		before.phase != after.phase || before.turn != after.turn || before.lastPlaced != after.lastPlaced ||
-		!maps.Equal(before.tiles, after.tiles) {
+		before.phase != after.phase || before.turn != after.turn || !samePos(before.lastPlaced, after.lastPlaced) ||
+		!maps.Equal(before.tiles, after.tiles) || !slices.Equal(before.meeples, after.meeples) || !slices.Equal(before.scores, after.scores) {
 		t.Fatalf("стан змінився попри помилку:\nдо    %+v\nпісля %+v", before, after)
 	}
+}
+
+// samePos — обидві позиції відсутні або однакові за значенням.
+func samePos(a, b *model.Position) bool {
+	return (a == nil) == (b == nil) && (a == nil || *a == *b)
 }

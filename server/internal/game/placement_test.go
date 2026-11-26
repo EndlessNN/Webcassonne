@@ -2,6 +2,7 @@ package game
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -49,6 +50,7 @@ func TestUS12_PlaceTile(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			g := newTestGame(tt.tile)
+			before := snapshotOf(g)
 			err := PlaceTile(g, 1, "iryna", tt.pos, tt.rotation)
 
 			if tt.want != nil {
@@ -56,10 +58,7 @@ func TestUS12_PlaceTile(t *testing.T) {
 					t.Fatalf("err = %v, want %v", err, tt.want)
 				}
 				// Тайл не розміщується, стан гри не змінюється.
-				if len(g.Tiles) != 1 || g.Phase != model.PhasePlaceTile || g.LastPlaced != nil ||
-					g.CurrentTile != tt.tile || g.CurrentSeat != 1 || g.TurnNumber != 2 || len(g.Deck) != 2 {
-					t.Fatalf("стан змінився попри помилку: %+v", g)
-				}
+				assertUnchanged(t, before, g)
 				return
 			}
 
@@ -187,14 +186,17 @@ func TestUS12_PlaceTileTwoNeighbors(t *testing.T) {
 
 // Негативні випадки з api.md без сценарію в AC: обертання поза {0, 90, 180, 270} і place_tile не в тій фазі.
 func TestUS12_PlaceTileRejected(t *testing.T) {
-	t.Run("VALIDATION_ERROR: обертання 45", func(t *testing.T) {
-		g := newTestGame("U")
-		before := snapshotOf(g)
-		if err := PlaceTile(g, 1, "iryna", pos(1, 0), 45); !errors.Is(err, ErrInvalidRotation) {
-			t.Fatalf("err = %v, want %v", err, ErrInvalidRotation)
-		}
-		assertUnchanged(t, before, g)
-	})
+	// api.md: rotation лише 0, 90, 180, 270; −90 і 360 — ті самі кути, але інше значення поля.
+	for _, rot := range []int{45, -90, 360} {
+		t.Run(fmt.Sprintf("VALIDATION_ERROR: обертання %d", rot), func(t *testing.T) {
+			g := newTestGame("U")
+			before := snapshotOf(g)
+			if err := PlaceTile(g, 1, "iryna", pos(1, 0), rot); !errors.Is(err, ErrInvalidRotation) {
+				t.Fatalf("err = %v, want %v", err, ErrInvalidRotation)
+			}
+			assertUnchanged(t, before, g)
+		})
+	}
 	t.Run("WRONG_PHASE: другий тайл у фазі PLACE_MEEPLE", func(t *testing.T) {
 		g := newTestGame("U")
 		if err := PlaceTile(g, 1, "iryna", pos(1, 0), 90); err != nil {

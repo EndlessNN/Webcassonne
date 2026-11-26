@@ -2,7 +2,9 @@ package room
 
 import (
 	"errors"
+	"fmt"
 	"math/rand/v2"
+	"reflect"
 	"slices"
 	"strconv"
 	"testing"
@@ -65,38 +67,24 @@ func wantError(t *testing.T, err error, code, message string) {
 	}
 }
 
-// gameState — порівнювана частина знімка для перевірки «стан не змінився».
-type gameState struct {
-	status      model.RoomStatus
-	deckCount   int
-	currentTile string
-	seat        int
-	phase       model.TurnPhase
-	turn        int
-	tiles       int
-	seats       []int
-}
-
-func gameStateOf(snap Snapshot) gameState {
-	gs := gameState{status: snap.Status}
-	for _, p := range snap.Players {
-		gs.seats = append(gs.seats, p.Seat)
-	}
-	if g := snap.Game; g != nil {
-		gs.deckCount, gs.currentTile, gs.seat, gs.phase, gs.turn, gs.tiles =
-			len(g.Deck), g.CurrentTile, g.CurrentSeat, g.Phase, g.TurnNumber, len(g.Tiles)
-	}
-	return gs
-}
-
-func assertSameState(t *testing.T, before gameState, after Snapshot) {
+// assertSameState — після відхиленої дії знімок кімнати (статус, гравці, партія з тайлами, стопкою, скинутими,
+// фазою, ходом, а також похідні legalPlacements, міпли й рахунок) повністю збігається зі знімком до дії.
+func assertSameState(t *testing.T, before, after Snapshot) {
 	t.Helper()
-	got := gameStateOf(after)
-	if got.status != before.status || got.deckCount != before.deckCount || got.currentTile != before.currentTile ||
-		got.seat != before.seat || got.phase != before.phase || got.turn != before.turn || got.tiles != before.tiles ||
-		!slices.Equal(got.seats, before.seats) {
-		t.Fatalf("стан змінився попри помилку:\nдо    %+v\nпісля %+v", before, got)
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("стан змінився попри помилку:\nдо    %s\nпісля %s", describe(before), describe(after))
 	}
+}
+
+func describe(s Snapshot) string {
+	out := fmt.Sprintf("status=%s host=%s finishedAt=%v players=", s.Status, s.HostPlayerID, s.FinishedAt)
+	for _, p := range s.Players {
+		out += fmt.Sprintf("[%s seat=%d color=%s] ", p.Nickname, p.Seat, p.Color)
+	}
+	if g := s.Game; g != nil {
+		out += fmt.Sprintf("game={%+v lastPlaced=%v}", *g, g.LastPlaced)
+	}
+	return out + fmt.Sprintf(" legal=%v meeples=%v", s.LegalPlacements, s.MeeplesInSupply)
 }
 
 // US-05: запуск партії. Очікування — з AC US-05, П-9 і docs/api.md.
@@ -217,7 +205,7 @@ func TestUS05_StartGame(t *testing.T) {
 	t.Run("GAME_ALREADY_STARTED", func(t *testing.T) {
 		s := newTestService()
 		r, active, passive := startedGame(t, s)
-		before := gameStateOf(state(s, r))
+		before := state(s, r)
 		// Статус перевіряється раніше за автора (api.md), тож і не організатор отримує GAME_ALREADY_STARTED.
 		for _, p := range []*model.Player{active, passive} {
 			wantError(t, s.StartGame(r.Code, p.ID), "GAME_ALREADY_STARTED", "Партія вже почалася")
@@ -263,7 +251,7 @@ func TestUS07_NotYourTurn(t *testing.T) {
 	if len(snap.LegalPlacements) == 0 || len(snap.LegalPlacements[0].Rotations) == 0 {
 		t.Fatalf("підготовка: legalPlacements = %+v", snap.LegalPlacements)
 	}
-	before := gameStateOf(snap)
+	before := snap
 	legal := snap.LegalPlacements[0]
 
 	actions := []struct {
@@ -315,7 +303,7 @@ func TestUS12_PlaceTile(t *testing.T) {
 			s := newTestService()
 			r, active, _ := startedGame(t, s)
 			setTurn(s, r, "E", []string{"C", "U", "B", "B"})
-			before := gameStateOf(state(s, r))
+			before := state(s, r)
 
 			wantError(t, s.PlaceTile(r.Code, active.ID, tt.pos, tt.rotation), tt.code, tt.message)
 			assertSameState(t, before, state(s, r))
@@ -348,7 +336,7 @@ func TestUS12_PlaceTile(t *testing.T) {
 		}
 
 		// api.md WRONG_PHASE: другий place_tile у фазі PLACE_MEEPLE.
-		before := gameStateOf(snap)
+		before := snap
 		wantError(t, s.PlaceTile(r.Code, active.ID, model.Position{X: 0, Y: 1}, 180), "WRONG_PHASE", "Ця дія зараз недоступна")
 		assertSameState(t, before, state(s, r))
 	})
