@@ -593,3 +593,26 @@ func TestUS13_PlaceMeepleRejectedUntilImplemented(t *testing.T) {
 		})
 	}
 }
+
+// US-14 «Пропуск»: хід переходить до наступного гравця, вільних міплів у гравця стільки ж, скільки було.
+// AC бере 5 міплів, але до US-13 міплів на поле не ставлять, тож у запасі завжди 7 (api.md, meeplesInSupply).
+func TestUS14_SkipMeeple(t *testing.T) {
+	s := newTestService()
+	r, active, passive := startedGame(t, s)
+	setTurn(s, r, "E", []string{"U", "B"})
+	if err := s.PlaceTile(r.Code, active.ID, model.Position{X: 0, Y: -1}, 180); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SkipMeeple(r.Code, active.ID); err != nil {
+		t.Fatal(err)
+	}
+	snap := state(s, r)
+	g := snap.Game
+	if snap.SeatPlayer[g.CurrentSeat] != passive.ID || g.Phase != model.PhasePlaceTile || g.TurnNumber != 2 {
+		t.Fatalf("current = %s, phase = %s, turn = %d; want %s, PLACE_TILE, 2", snap.SeatPlayer[g.CurrentSeat], g.Phase, g.TurnNumber, passive.ID)
+	}
+	// US-16: стопка −1 (U у руки наступного), міплів у кожного 7.
+	if g.CurrentTile != "U" || len(g.Deck) != 1 || snap.MeeplesInSupply[active.ID] != 7 || snap.MeeplesInSupply[passive.ID] != 7 {
+		t.Fatalf("currentTile = %q, deckCount = %d, meeplesInSupply = %v", g.CurrentTile, len(g.Deck), snap.MeeplesInSupply)
+	}
+}

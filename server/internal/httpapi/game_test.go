@@ -339,3 +339,47 @@ func TestSocket_Abandoned(t *testing.T) {
 	oleg.send(map[string]string{"type": "skip_meeple"})
 	oleg.readError("WRONG_PHASE", "Ця дія зараз недоступна")
 }
+
+// Формат повідомлень клієнта (api.md §1, «Порядок перевірок»): неправильний JSON, відсутні або зайві поля —
+// «Неправильне повідомлення»; type не з таблиці «Клієнт → сервер» — «Невідомий тип повідомлення».
+// Формат перевіряється першим, тож і в LOBBY, і від не організатора відповідь та сама; стан не змінюється.
+func TestSocket_MessageFormat(t *testing.T) {
+	const bad, unknown = "Неправильне повідомлення", "Невідомий тип повідомлення"
+	tests := []struct{ name, raw, message string }{
+		{"неправильний JSON", `{`, bad},
+		{"не об'єкт", `[]`, bad},
+		{"type не рядок", `{"type":5}`, bad},
+		{"два JSON поспіль", `{"type":"start_game"} {}`, bad},
+		{"start_game із зайвим полем", `{"type":"start_game","foo":1}`, bad},
+		{"start_game з полем place_tile", `{"type":"start_game","x":1}`, bad},
+		{"skip_meeple з полем segment", `{"type":"skip_meeple","segment":0}`, bad},
+		{"place_tile без rotation", `{"type":"place_tile","x":1,"y":0}`, bad},
+		{"place_tile без x", `{"type":"place_tile","y":0,"rotation":90}`, bad},
+		{"place_tile з дробовим x", `{"type":"place_tile","x":1.5,"y":0,"rotation":90}`, bad},
+		{"place_tile з рядковим rotation", `{"type":"place_tile","x":1,"y":0,"rotation":"90"}`, bad},
+		{"place_tile із segment", `{"type":"place_tile","x":1,"y":0,"rotation":90,"segment":0}`, bad},
+		{"place_meeple без segment", `{"type":"place_meeple"}`, bad},
+		{"place_meeple з x", `{"type":"place_meeple","segment":0,"x":1}`, bad},
+		{"без type", `{}`, unknown},
+		{"type у верхньому регістрі", `{"type":"START_GAME"}`, unknown},
+		{"локальна дія клієнта", `{"type":"rotate_tile"}`, unknown},
+	}
+	clients, _, _ := gameLobby(t, "Ірина")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, c := range clients { // організатор і гравець
+				if err := c.conn.Write(c.ctx, websocket.MessageText, []byte(tt.raw)); err != nil {
+					t.Fatal(err)
+				}
+				c.readError("VALIDATION_ERROR", tt.message)
+			}
+		})
+	}
+	// Після всіх відмов кімната досі в лобі: старт проходить і доходить до обох.
+	clients[0].send(map[string]string{"type": "start_game"})
+	for _, c := range clients {
+		if s := c.readState(); s.Status != "PLAYING" || s.Game == nil || s.Game.TurnNumber != 1 {
+			t.Fatalf("status = %s, game = %+v", s.Status, s.Game)
+		}
+	}
+}
