@@ -520,3 +520,36 @@ func TestUS21_EndOfDeck(t *testing.T) {
 		})
 	}
 }
+
+// Перервана партія (api.md §3): гравець закрив вкладку в PLAYING і не повернувся — кімната ABANDONED, гравець
+// лишається в players, finishedAt заповнено, решта отримує знімок; далі будь-яка ігрова дія — WRONG_PHASE.
+func TestAbandoned_DisconnectDuringGame(t *testing.T) {
+	for _, leaver := range []string{"активний гравець", "неактивний гравець"} {
+		t.Run(leaver, func(t *testing.T) {
+			s := newTestService()
+			r, active, passive := startedGame(t, s)
+			stays, leaves := active, passive
+			if leaver == "активний гравець" {
+				stays, leaves = passive, active
+			}
+			staySub := mustConnect(t, s, r.Code, stays.Token)
+			leaveSub := mustConnect(t, s, r.Code, leaves.Token)
+			recv(t, staySub) // знімок про підключення другого
+			before := state(s, r)
+
+			s.Disconnect(leaveSub)
+			snap := recv(t, staySub)
+			if snap.Status != model.RoomAbandoned || snap.FinishedAt.IsZero() || len(snap.Players) != 2 {
+				t.Fatalf("status = %s, finishedAt = %v, players = %d", snap.Status, snap.FinishedAt, len(snap.Players))
+			}
+			// Партія застигла: поле, стопка, хід ті самі; legalPlacements лише в PLAYING; finalScores лише у FINISHED.
+			g, was := snap.Game, before.Game
+			if len(g.Tiles) != 1 || len(g.Deck) != len(was.Deck) || g.CurrentSeat != was.CurrentSeat || g.TurnNumber != 1 ||
+				len(snap.LegalPlacements) != 0 || snap.FinalScores != nil {
+				t.Fatalf("game = %+v, legalPlacements = %+v, finalScores = %+v", *g, snap.LegalPlacements, snap.FinalScores)
+			}
+
+			assertFinalState(t, s, r, []*model.Player{active, passive}, []*Sub{staySub})
+		})
+	}
+}

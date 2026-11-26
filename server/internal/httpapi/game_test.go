@@ -303,3 +303,27 @@ func TestSocket_US15_US21_FullGame(t *testing.T) {
 	clients[1].send(map[string]string{"type": "start_game"})
 	clients[1].readError("GAME_ALREADY_STARTED", "Партія вже почалася")
 }
+
+// ABANDONED через WebSocket (api.md §3): закрите з'єднання під час партії — другий гравець отримує знімок
+// з currentTile = null і порожніми legalPlacements, далі його дія — WRONG_PHASE.
+func TestSocket_Abandoned(t *testing.T) {
+	clients, ids, _ := gameLobby(t, "Ірина")
+	oleg, iryna := clients[0], clients[1]
+	oleg.send(map[string]string{"type": "start_game"})
+	oleg.readState()
+	iryna.readState()
+
+	if err := iryna.conn.Close(websocket.StatusNormalClosure, ""); err != nil {
+		t.Fatal(err)
+	}
+	s := oleg.readState()
+	if s.Status != "ABANDONED" || len(s.Players) != 2 || s.Players[1].ID != ids[1] || s.Game == nil {
+		t.Fatalf("status = %s, players = %+v", s.Status, s.Players)
+	}
+	if g := s.Game; g.CurrentTile != nil || g.LegalPlacements == nil || len(g.LegalPlacements) != 0 || g.FinalScores != nil {
+		t.Fatalf("game = %+v", g)
+	}
+
+	oleg.send(map[string]string{"type": "skip_meeple"})
+	oleg.readError("WRONG_PHASE", "Ця дія зараз недоступна")
+}
