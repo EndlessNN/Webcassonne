@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/EndlessNN/Webcassonne/server/internal/model"
 	"github.com/EndlessNN/Webcassonne/server/internal/store"
@@ -13,6 +14,28 @@ func newTestService() *Service {
 	s := NewService(store.NewMemory())
 	s.LeaveGrace = 0
 	return s
+}
+
+// mustConnect — підписка гравця; помилка підготовки валить тест.
+func mustConnect(t *testing.T, s *Service, code, token string) *Sub {
+	t.Helper()
+	sub, err := s.Connect(code, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sub
+}
+
+// recv — наступний знімок підписки; якщо його немає за секунду, тест падає, а не зависає.
+func recv(t *testing.T, sub *Sub) Snapshot {
+	t.Helper()
+	select {
+	case snap := <-sub.Updates:
+		return snap
+	case <-time.After(time.Second):
+		t.Fatal("знімок не надійшов за 1 с")
+		return Snapshot{}
+	}
 }
 
 func TestUS01_CreateRoom(t *testing.T) {
@@ -71,7 +94,14 @@ func TestUS03_Join(t *testing.T) {
 	}{
 		{"успішне приєднання", nil, "", "Ірина", nil},
 		{"кімнати не існує", nil, "ZZZZZZ", "Андрій", ErrRoomNotFound},
-		{"партія вже почалася", func(_ *Service, r *model.Room) { r.Status = model.RoomPlaying }, "", "Андрій", ErrGameStarted},
+		{"партія вже почалася", func(s *Service, r *model.Room) {
+			if _, err := s.Join(r.Code, "Ірина"); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.StartGame(r.Code, r.HostPlayerID); err != nil {
+				t.Fatal(err)
+			}
+		}, "", "Андрій", ErrGameStarted},
 		{"кімната заповнена", func(s *Service, r *model.Room) {
 			for _, n := range []string{"А", "Б", "В", "Г"} {
 				if _, err := s.Join(r.Code, n); err != nil {
@@ -89,7 +119,7 @@ func TestUS03_Join(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestService()
-			r, _, _ := s.Create("Олег")
+			r, _ := newLobby(t, s, "Олег")
 			if tt.setup != nil {
 				tt.setup(s, r)
 			}
@@ -118,33 +148,36 @@ func TestUS03_Join(t *testing.T) {
 	}
 }
 
+// AC: Олег та Ірина в лобі; Андрій приєднується — обидва бачать його в списку.
 func TestUS04_NewPlayerAppearsForEveryone(t *testing.T) {
 	s := newTestService()
-	r, oleg, _ := s.Create("Олег")
-	sub, err := s.Connect(r.Code, oleg.Token)
-	if err != nil {
-		t.Fatal(err)
+	r, ps := newLobby(t, s, "Олег", "Ірина")
+	subs := []*Sub{mustConnect(t, s, r.Code, ps[0].Token), mustConnect(t, s, r.Code, ps[1].Token)}
+	for _, sub := range subs {
+		recv(t, sub) // знімок після підключень
 	}
-	<-sub.Updates // знімок після підключення
 
 	if _, err := s.Join(r.Code, "Андрій"); err != nil {
 		t.Fatal(err)
 	}
-	snap := <-sub.Updates
-	if len(snap.Players) != 2 || snap.Players[1].Nickname != "Андрій" {
-		t.Fatalf("snapshot players = %+v", snap.Players)
+	for i, sub := range subs {
+		snap := recv(t, sub)
+		if len(snap.Players) != 3 || snap.Players[2].Nickname != "Андрій" {
+			t.Fatalf("підписка %d: players = %+v", i, snap.Players)
+		}
 	}
 }
 
 func TestUS04_PlayerLeavesLobby(t *testing.T) {
 	s := newTestService()
-	r, oleg, _ := s.Create("Олег")
-	iryna, _ := s.Join(r.Code, "Ірина")
-	subOleg, _ := s.Connect(r.Code, oleg.Token)
-	subIryna, _ := s.Connect(r.Code, iryna.Token)
+	r, ps := newLobby(t, s, "Олег", "Ірина")
+	oleg := ps[0]
+	subOleg := mustConnect(t, s, r.Code, oleg.Token)
+	subIryna := mustConnect(t, s, r.Code, ps[1].Token)
+	recv(t, subOleg) // знімок про підключення Ірини
 
 	s.Disconnect(subIryna)
-	snap := <-subOleg.Updates
+	snap := recv(t, subOleg)
 	if len(snap.Players) != 1 || snap.Players[0].ID != oleg.ID {
 		t.Fatalf("snapshot players = %+v", snap.Players)
 	}
@@ -152,10 +185,9 @@ func TestUS04_PlayerLeavesLobby(t *testing.T) {
 
 func TestHostLeavesLobby_EarliestPlayerBecomesHost(t *testing.T) {
 	s := newTestService()
-	r, oleg, _ := s.Create("Олег")
-	iryna, _ := s.Join(r.Code, "Ірина")
-	s.Join(r.Code, "Андрій")
-	subOleg, _ := s.Connect(r.Code, oleg.Token)
+	r, ps := newLobby(t, s, "Олег", "Ірина", "Андрій")
+	iryna := ps[1]
+	subOleg := mustConnect(t, s, r.Code, ps[0].Token)
 
 	s.Disconnect(subOleg)
 	if r.HostPlayerID != iryna.ID {
@@ -165,8 +197,8 @@ func TestHostLeavesLobby_EarliestPlayerBecomesHost(t *testing.T) {
 
 func TestLastPlayerLeaves_RoomDeleted(t *testing.T) {
 	s := newTestService()
-	r, oleg, _ := s.Create("Олег")
-	sub, _ := s.Connect(r.Code, oleg.Token)
+	r, ps := newLobby(t, s, "Олег")
+	sub := mustConnect(t, s, r.Code, ps[0].Token)
 
 	s.Disconnect(sub)
 	if _, ok := s.store.Get(r.Code); ok {
@@ -176,7 +208,7 @@ func TestLastPlayerLeaves_RoomDeleted(t *testing.T) {
 
 func TestConnect_InvalidToken(t *testing.T) {
 	s := newTestService()
-	r, _, _ := s.Create("Олег")
+	r, _ := newLobby(t, s, "Олег")
 	for _, token := range []string{"", "wrong"} {
 		if _, err := s.Connect(r.Code, token); !errors.Is(err, ErrInvalidToken) {
 			t.Fatalf("token %q: err = %v", token, err)
@@ -186,8 +218,9 @@ func TestConnect_InvalidToken(t *testing.T) {
 
 func TestReconnect_OldSubDisconnectDoesNotKickPlayer(t *testing.T) {
 	s := newTestService()
-	r, oleg, _ := s.Create("Олег")
-	old, _ := s.Connect(r.Code, oleg.Token)
+	r, ps := newLobby(t, s, "Олег")
+	oleg := ps[0]
+	old := mustConnect(t, s, r.Code, oleg.Token)
 	if _, err := s.Connect(r.Code, oleg.Token); err != nil {
 		t.Fatal(err)
 	}
