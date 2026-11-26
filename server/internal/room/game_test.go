@@ -349,3 +349,59 @@ func TestUS09_DrawAfterTurn(t *testing.T) {
 		t.Fatalf("status = %s, legalPlacements = %+v", snap.Status, snap.LegalPlacements)
 	}
 }
+
+// US-15: знімок, який отримала підписка, серіалізується поза s.mu (httpapi), тож він має бути незалежною копією:
+// подальші зміни кімнати його не змінюють. -race цього не ловить, якщо читання й запис не перетнулися в часі.
+func TestUS15_SnapshotIsIndependentCopy(t *testing.T) {
+	t.Run("старт партії не змінює знімок лобі", func(t *testing.T) {
+		s := newTestService()
+		r, ps := newLobby(t, s, "Олег", "Ірина")
+		sub := mustConnect(t, s, r.Code, ps[0].Token)
+		snap := recv(t, sub)
+
+		if err := s.StartGame(r.Code, ps[0].ID); err != nil {
+			t.Fatal(err)
+		}
+		// Знімок лобі: місця −1, кольорів немає, партії немає (api.md: color, seat — null у LOBBY).
+		if snap.Status != model.RoomLobby || snap.Game != nil || len(snap.Players) != 2 {
+			t.Fatalf("знімок змінився: status = %s, game = %+v, players = %d", snap.Status, snap.Game, len(snap.Players))
+		}
+		for _, p := range snap.Players {
+			if p.Seat != -1 || p.Color != "" {
+				t.Fatalf("знімок лобі змінився після старту: %s seat = %d, color = %q", p.Nickname, p.Seat, p.Color)
+			}
+		}
+	})
+
+	t.Run("хід не змінює знімок партії", func(t *testing.T) {
+		s := newTestService()
+		r, active, _ := startedGame(t, s)
+		setTurn(s, r, "E", []string{"C", "U", "B", "B"})
+		sub := mustConnect(t, s, r.Code, active.Token)
+		snap := recv(t, sub)
+		seat := snap.Game.CurrentSeat
+
+		// E 180° над D, без міпла: далі C скидається (як у TestUS09_DrawAfterTurn) — змінюються тайли, стопка,
+		// поточний тайл, скинуті, фаза, місце, номер ходу, останній покладений.
+		if err := s.PlaceTile(r.Code, active.ID, model.Position{X: 0, Y: -1}, 180); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SkipMeeple(r.Code, active.ID); err != nil {
+			t.Fatal(err)
+		}
+
+		g := snap.Game
+		if len(g.Tiles) != 1 || g.Tiles[model.Position{}] != (model.PlacedTile{TileTypeID: "D"}) {
+			t.Fatalf("тайли у знімку змінилися: %+v", g.Tiles)
+		}
+		if !slices.Equal(g.Deck, []string{"C", "U", "B", "B"}) || g.CurrentTile != "E" || len(g.Discarded) != 0 {
+			t.Fatalf("стопка у знімку змінилася: deck = %v, currentTile = %q, discarded = %v", g.Deck, g.CurrentTile, g.Discarded)
+		}
+		if g.Phase != model.PhasePlaceTile || g.CurrentSeat != seat || g.TurnNumber != 1 || g.LastPlaced != nil {
+			t.Fatalf("хід у знімку змінився: phase = %s, seat = %d, turn = %d, lastPlaced = %v", g.Phase, g.CurrentSeat, g.TurnNumber, g.LastPlaced)
+		}
+		if snap.Status != model.RoomPlaying || len(snap.LegalPlacements) != 2 {
+			t.Fatalf("status = %s, legalPlacements = %+v", snap.Status, snap.LegalPlacements)
+		}
+	})
+}
