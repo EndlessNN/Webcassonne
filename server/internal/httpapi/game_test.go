@@ -3,8 +3,11 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"maps"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -381,5 +384,72 @@ func TestSocket_MessageFormat(t *testing.T) {
 		if s := c.readState(); s.Status != "PLAYING" || s.Game == nil || s.Game.TurnNumber != 1 {
 			t.Fatalf("status = %s, game = %+v", s.Status, s.Game)
 		}
+	}
+}
+
+// US-06: GET /api/tiles — каталог з docs/tiles.md (api.md §2). Очікування — літерали з tiles.md, «Підсумок» і розділ D.
+func TestUS06_TileCatalog(t *testing.T) {
+	srv := newTestServer(t)
+	res, err := http.Get(srv.URL + "/api/tiles")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	raw, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got tilesResponse
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", res.StatusCode)
+	}
+
+	// tiles.md «Підсумок»: 24 типи, разом 72, стартовий лише D, тайлів зі щитом 10 (C, F, M, O, Q, S).
+	wantCount := map[string]int{
+		"A": 2, "B": 4, "C": 1, "D": 4, "E": 5, "F": 2, "G": 1, "H": 3, "I": 2, "J": 3, "K": 3, "L": 3,
+		"M": 2, "N": 3, "O": 2, "P": 3, "Q": 1, "R": 3, "S": 2, "T": 1, "U": 8, "V": 9, "W": 4, "X": 1,
+	}
+	counts, total, pennantTiles := map[string]int{}, 0, 0
+	var starts, pennants []string
+	for _, tt := range got.Tiles {
+		counts[tt.ID] = tt.Count
+		total += tt.Count
+		if tt.IsStart {
+			starts = append(starts, tt.ID)
+		}
+		if len(tt.Segments) == 0 {
+			t.Fatalf("тип %s без сегментів", tt.ID)
+		}
+		for _, s := range tt.Segments {
+			if s.Pennant {
+				pennants = append(pennants, tt.ID)
+				pennantTiles += tt.Count
+				break
+			}
+		}
+	}
+	if len(got.Tiles) != 24 || !maps.Equal(counts, wantCount) || total != 72 {
+		t.Fatalf("типів %d, разом %d, склад %v; want 24, 72, %v", len(got.Tiles), total, counts, wantCount)
+	}
+	if !slices.Equal(starts, []string{"D"}) || !slices.Equal(pennants, []string{"C", "F", "M", "O", "Q", "S"}) || pennantTiles != 10 {
+		t.Fatalf("стартові %v, зі щитом %v (%d тайлів); want [D], [C F M O Q S], 10", starts, pennants, pennantTiles)
+	}
+
+	// tiles.md, розділ D: сегменти в порядку індексів, adjacentCities — масив, а не null (api.md, приклад).
+	wantD := []segmentView{
+		{Type: "CITY", Points: []string{"N0", "N1", "N2"}, AdjacentCities: []int{}},
+		{Type: "ROAD", Points: []string{"E1", "W1"}, AdjacentCities: []int{}},
+		{Type: "FIELD", Points: []string{"E0", "W2"}, AdjacentCities: []int{0}},
+		{Type: "FIELD", Points: []string{"E2", "S0", "S1", "S2", "W0"}, AdjacentCities: []int{}},
+	}
+	i := slices.IndexFunc(got.Tiles, func(tt tileTypeView) bool { return tt.ID == "D" })
+	if d := got.Tiles[i]; !reflect.DeepEqual(d.Segments, wantD) {
+		t.Fatalf("D: %+v, want %+v", d.Segments, wantD)
+	}
+	if strings.Contains(string(raw), "null") {
+		t.Fatalf("у каталозі є null: %s", raw)
 	}
 }
