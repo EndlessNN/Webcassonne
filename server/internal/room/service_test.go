@@ -234,3 +234,81 @@ func TestReconnect_OldSubDisconnectDoesNotKickPlayer(t *testing.T) {
 		t.Fatal("гравця прибрано через закриття старої вкладки")
 	}
 }
+
+// US-04 «Гравець виходить з лобі … не пізніше ніж за 5 секунд» і api.md §3: гравця прибирають, лише якщо він
+// не підключився знову за LeaveGrace. Тут LeaveGrace = 50 мс, очікування — select з тайм-аутом, без Sleep.
+func TestUS04_LeaveGrace(t *testing.T) {
+	const grace = 50 * time.Millisecond
+	// noUpdate — за 4 × grace підписка не отримала жодного знімка (таймер не спрацював).
+	noUpdate := func(t *testing.T, sub *Sub) {
+		t.Helper()
+		select {
+		case snap := <-sub.Updates:
+			t.Fatalf("неочікуваний знімок: status = %s, players = %d", snap.Status, len(snap.Players))
+		case <-time.After(4 * grace):
+		}
+	}
+	setup := func(t *testing.T, start bool) (*Service, *model.Room, *Sub, *Sub, []*model.Player) {
+		s := newTestService()
+		s.LeaveGrace = grace
+		r, ps := newLobby(t, s, "Олег", "Ірина")
+		if start {
+			if err := s.StartGame(r.Code, ps[0].ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		oleg, iryna := mustConnect(t, s, r.Code, ps[0].Token), mustConnect(t, s, r.Code, ps[1].Token)
+		recv(t, oleg) // знімок про підключення Ірини
+		return s, r, oleg, iryna, ps
+	}
+
+	t.Run("за замовчуванням не довше 5 с", func(t *testing.T) {
+		if d := NewService(store.NewMemory()).LeaveGrace; d <= 0 || d > 5*time.Second {
+			t.Fatalf("LeaveGrace = %v, want (0, 5 с]", d)
+		}
+	})
+
+	t.Run("гравець виходить з лобі після паузи", func(t *testing.T) {
+		s, r, oleg, iryna, _ := setup(t, false)
+		s.Disconnect(iryna)
+		if n := len(state(s, r).Players); n != 2 {
+			t.Fatalf("гравця прибрано до кінця паузи: players = %d", n)
+		}
+		if snap := recv(t, oleg); len(snap.Players) != 1 || snap.Players[0].Nickname != "Олег" {
+			t.Fatalf("після паузи players = %+v", snap.Players)
+		}
+	})
+
+	t.Run("повернувся в лобі вчасно — лишається", func(t *testing.T) {
+		s, r, oleg, iryna, ps := setup(t, false)
+		s.Disconnect(iryna)
+		mustConnect(t, s, r.Code, ps[1].Token) // напр. подвійне монтування React StrictMode
+		recv(t, oleg)                          // знімок про повторне підключення
+		noUpdate(t, oleg)
+		if snap := state(s, r); len(snap.Players) != 2 || snap.Status != model.RoomLobby {
+			t.Fatalf("status = %s, players = %d", snap.Status, len(snap.Players))
+		}
+	})
+
+	t.Run("партія переривається після паузи", func(t *testing.T) {
+		s, r, oleg, iryna, _ := setup(t, true)
+		s.Disconnect(iryna)
+		if st := state(s, r).Status; st != model.RoomPlaying {
+			t.Fatalf("партію перервано до кінця паузи: %s", st)
+		}
+		if snap := recv(t, oleg); snap.Status != model.RoomAbandoned || len(snap.Players) != 2 {
+			t.Fatalf("після паузи status = %s, players = %d", snap.Status, len(snap.Players))
+		}
+	})
+
+	t.Run("повернувся в партію вчасно — партія триває", func(t *testing.T) {
+		s, r, oleg, iryna, ps := setup(t, true)
+		s.Disconnect(iryna)
+		mustConnect(t, s, r.Code, ps[1].Token)
+		recv(t, oleg)
+		noUpdate(t, oleg)
+		if st := state(s, r).Status; st != model.RoomPlaying {
+			t.Fatalf("status = %s, want PLAYING", st)
+		}
+	})
+}
