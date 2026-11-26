@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -225,4 +226,80 @@ func TestSocket_US07_US12_GameErrors(t *testing.T) {
 			t.Fatalf("клієнт %d: legalPlacements = %+v, current = %s", i, g.LegalPlacements, g.CurrentPlayerID)
 		}
 	}
+}
+
+// sameState — знімки двох гравців однакові в усьому, крім youPlayerId (US-15 «Однаковий стан у всіх»).
+func sameState(t *testing.T, a, b roomView) {
+	t.Helper()
+	a.YouPlayerID, b.YouPlayerID = "", ""
+	if !reflect.DeepEqual(a, b) {
+		t.Fatalf("знімки гравців різні:\n%+v\n%+v", a, b)
+	}
+}
+
+// US-15 і US-21 через WebSocket: два гравці грають усю стопку (тайл на першу допустиму позицію, без міпла).
+// Після кожної дії обидва отримують однаковий знімок; лічильник стопки лише зменшується; у кінці — FINISHED
+// за shortcut з api.md «Кінець стопки».
+func TestSocket_US15_US21_FullGame(t *testing.T) {
+	clients, ids, _ := gameLobby(t, "Ірина")
+	byID := map[string]*wsClient{ids[0]: clients[0], ids[1]: clients[1]}
+	readBoth := func() roomView {
+		t.Helper()
+		a, b := clients[0].readState(), clients[1].readState()
+		sameState(t, a, b)
+		return a
+	}
+
+	clients[0].send(map[string]string{"type": "start_game"})
+	cur := readBoth()
+	turns, prevDeck, discarded := 0, 71, 0
+	for cur.Status == "PLAYING" {
+		g := cur.Game
+		// US-16: стопка зменшується щонайменше на 1 за витягування; US-14: міплів не меншає.
+		if g.DeckCount >= prevDeck || g.TurnNumber != turns+1 || g.Phase != "PLACE_TILE" || len(g.LegalPlacements) == 0 {
+			t.Fatalf("хід %d: deckCount %d → %d, turnNumber = %d, phase = %s, legalPlacements = %d",
+				turns+1, prevDeck, g.DeckCount, g.TurnNumber, g.Phase, len(g.LegalPlacements))
+		}
+		for _, p := range cur.Players {
+			if p.MeeplesInSupply != 7 {
+				t.Fatalf("хід %d: %s має %d міплів, want 7", turns+1, p.Nickname, p.MeeplesInSupply)
+			}
+		}
+		prevDeck = g.DeckCount
+		discarded += len(g.DiscardedTiles)
+		active, ok := byID[g.CurrentPlayerID]
+		if !ok {
+			t.Fatalf("currentPlayerId = %s", g.CurrentPlayerID)
+		}
+		lp := g.LegalPlacements[0]
+		active.send(map[string]any{"type": "place_tile", "x": lp.X, "y": lp.Y, "rotation": lp.Rotations[0]})
+		readBoth()
+		active.send(map[string]string{"type": "skip_meeple"})
+		cur = readBoth()
+		turns++
+	}
+
+	g := cur.Game
+	discarded += len(g.DiscardedTiles)
+	// 72 тайли (tiles.md) = стартовий + покладені за turns ходів + скинуті.
+	if cur.Status != "FINISHED" || len(g.Tiles) != 1+turns || 1+turns+discarded != 72 || g.DeckCount != 0 {
+		t.Fatalf("status = %s, tiles = %d, ходів = %d, скинуто = %d, deckCount = %d", cur.Status, len(g.Tiles), turns, discarded, g.DeckCount)
+	}
+	if turns < 10 {
+		t.Fatalf("зіграно %d ходів, AC US-15 потребує щонайменше 10", turns)
+	}
+	if g.CurrentTile != nil || g.LegalPlacements == nil || len(g.LegalPlacements) != 0 || len(g.FinalScores) != 2 {
+		t.Fatalf("currentTile = %+v, legalPlacements = %+v, finalScores = %+v", g.CurrentTile, g.LegalPlacements, g.FinalScores)
+	}
+	for _, f := range g.FinalScores {
+		if f != (finalScoreView{PlayerID: f.PlayerID, Winner: true}) || byID[f.PlayerID] == nil {
+			t.Fatalf("finalScores = %+v, want нулі й winner у кожного гравця", g.FinalScores)
+		}
+	}
+
+	// Після FINISHED дія — WRONG_PHASE лише автору: наступне повідомлення другого гравця — його власна помилка.
+	clients[0].send(map[string]any{"type": "place_tile", "x": 99, "y": 99, "rotation": 0})
+	clients[0].readError("WRONG_PHASE", "Ця дія зараз недоступна")
+	clients[1].send(map[string]string{"type": "start_game"})
+	clients[1].readError("GAME_ALREADY_STARTED", "Партія вже почалася")
 }

@@ -424,3 +424,99 @@ func TestUS15_SnapshotIsIndependentCopy(t *testing.T) {
 		}
 	})
 }
+
+// allActions — кожна ігрова дія від імені гравця; для перевірки «після завершення будь-яка дія — WRONG_PHASE».
+func allActions(s *Service, code, playerID string) map[string]error {
+	return map[string]error{
+		"place_tile":   s.PlaceTile(code, playerID, model.Position{X: 1, Y: 0}, 90),
+		"place_meeple": s.PlaceMeeple(code, playerID, 0),
+		"skip_meeple":  s.SkipMeeple(code, playerID),
+	}
+}
+
+// assertFinalState — після FINISHED чи ABANDONED ігрові дії дають WRONG_PHASE, start_game — GAME_ALREADY_STARTED
+// (api.md §1), закриття з'єднання стан не змінює (api.md §3), знімок лишається тим самим.
+func assertFinalState(t *testing.T, s *Service, r *model.Room, players []*model.Player, subs []*Sub) {
+	t.Helper()
+	before := state(s, r)
+	for _, p := range players {
+		for name, err := range allActions(s, r.Code, p.ID) {
+			if !errors.Is(err, ErrWrongPhase) {
+				t.Fatalf("%s від %s: err = %v, want %v", name, p.Nickname, err, ErrWrongPhase)
+			}
+		}
+		wantError(t, s.StartGame(r.Code, p.ID), "GAME_ALREADY_STARTED", "Партія вже почалася")
+	}
+	for _, sub := range subs {
+		s.Disconnect(sub)
+	}
+	assertSameState(t, before, state(s, r))
+	if _, ok := s.store.Get(r.Code); !ok {
+		t.Fatal("кімнату видалено після закриття з'єднань")
+	}
+}
+
+// US-21 «Останній тайл скинуто» через сервер (shortcut, api.md «Кінець стопки»): кімната FINISHED, finishedAt
+// заповнено, finalScores — рядок на кожного гравця з нулями і winner: true у всіх.
+func TestUS21_EndOfDeck(t *testing.T) {
+	tests := []struct {
+		name          string
+		deck          []string
+		wantDiscarded []string
+	}{
+		// E 180° над D закриває місто — C після нього нікуди не лягає (як у TestUS09_DrawAfterTurn).
+		{"останній тайл скинуто", []string{"C"}, []string{"C"}},
+		{"стопка порожня", []string{}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestService()
+			r, active, passive := startedGame(t, s)
+			subs := []*Sub{mustConnect(t, s, r.Code, active.Token), mustConnect(t, s, r.Code, passive.Token)}
+			setTurn(s, r, "E", tt.deck)
+			seat := state(s, r).Game.CurrentSeat
+			if err := s.PlaceTile(r.Code, active.ID, model.Position{X: 0, Y: -1}, 180); err != nil {
+				t.Fatal(err)
+			}
+			recv(t, subs[0])
+			recv(t, subs[1])
+			if err := s.SkipMeeple(r.Code, active.ID); err != nil {
+				t.Fatal(err)
+			}
+
+			// Обидва гравці отримують знімок завершеної партії.
+			for i, sub := range subs {
+				if snap := recv(t, sub); snap.Status != model.RoomFinished {
+					t.Fatalf("підписка %d: status = %s", i, snap.Status)
+				}
+			}
+			snap := state(s, r)
+			g := snap.Game
+			if snap.Status != model.RoomFinished || snap.FinishedAt.IsZero() {
+				t.Fatalf("status = %s, finishedAt = %v", snap.Status, snap.FinishedAt)
+			}
+			if g.CurrentTile != "" || len(g.Deck) != 0 || !slices.Equal(g.Discarded, tt.wantDiscarded) || len(g.Tiles) != 2 {
+				t.Fatalf("currentTile = %q, deck = %v, discarded = %v, tiles = %d", g.CurrentTile, g.Deck, g.Discarded, len(g.Tiles))
+			}
+			// api.md: місце, хід і фаза — значення на момент завершення; legalPlacements лише в PLAYING.
+			if g.CurrentSeat != seat || g.TurnNumber != 1 || g.Phase != model.PhasePlaceMeeple || len(snap.LegalPlacements) != 0 {
+				t.Fatalf("seat = %d, turn = %d, phase = %s, legalPlacements = %+v", g.CurrentSeat, g.TurnNumber, g.Phase, snap.LegalPlacements)
+			}
+			if len(snap.FinalScores) != 2 {
+				t.Fatalf("finalScores = %+v, want 2 рядки", snap.FinalScores)
+			}
+			ids := map[string]bool{}
+			for _, f := range snap.FinalScores {
+				ids[f.PlayerID] = true
+				if f.Road != 0 || f.City != 0 || f.Monastery != 0 || f.Field != 0 || f.Total != 0 || !f.Winner {
+					t.Fatalf("finalScores = %+v, want нулі і winner у всіх", snap.FinalScores)
+				}
+			}
+			if !ids[active.ID] || !ids[passive.ID] {
+				t.Fatalf("finalScores = %+v, want по рядку на кожного гравця", snap.FinalScores)
+			}
+
+			assertFinalState(t, s, r, []*model.Player{active, passive}, subs)
+		})
+	}
+}

@@ -79,24 +79,6 @@ func TestUS07_NotYourTurn(t *testing.T) {
 
 // US-09: тайл зі стопки на початку ходу і автоматичне скидання тайла, який неможливо покласти.
 func TestUS09_DrawTile(t *testing.T) {
-	// afterPlacement — хід Олега (місце 0) з 2 гравців у фазі PLACE_MEEPLE: тайл уже покладено, далі черга Ірини.
-	afterPlacement := func(tiles map[model.Position]model.PlacedTile, deck []string) *model.Game {
-		last := pos(0, 1)
-		return &model.Game{
-			Deck: deck, CurrentTile: "B", CurrentSeat: 0, Phase: model.PhasePlaceMeeple,
-			TurnNumber: 5, LastPlaced: &last, Tiles: tiles,
-		}
-	}
-	// Поле з AC «Тайл, який неможливо покласти»: D у (0, 0) і E 180° у (0, −1) (місто E на півдні ↔ місто D).
-	// Відкриті сторони: E 180° — N, E, W поле (FFF); D — E і W поле-дорога-поле, S поле.
-	// C (місто на всіх сторонах) не лягає в жодну клітинку, в жодному обертанні.
-	closedCity := func() map[model.Position]model.PlacedTile {
-		return board(
-			model.PlacedTile{Pos: pos(0, 1), TileTypeID: "B", PlacedBy: "oleg", TurnNumber: 5},
-			model.PlacedTile{Pos: pos(0, -1), TileTypeID: "E", Rotation: 180},
-		)
-	}
-
 	t.Run("отримання тайла на початку ходу", func(t *testing.T) {
 		// Настав хід Ірини, у стопці 50 тайлів: верх U, далі 49 B. Обидва лягають поруч з D.
 		deck := append([]string{"U"}, slices.Repeat([]string{"B"}, 49)...)
@@ -165,4 +147,45 @@ func TestUS09_DrawTile(t *testing.T) {
 		}
 		assertUnchanged(t, before, g)
 	})
+}
+
+// US-21 «Останній тайл скинуто» (shortcut до підрахунку, api.md «Кінець стопки»): якщо після skip_meeple тайлів,
+// які можна покласти, не лишилося, партія завершена; місце, хід і фаза лишаються значеннями на момент завершення.
+func TestUS21_EndOfDeck(t *testing.T) {
+	tests := []struct {
+		name          string
+		deck          []string
+		wantDiscarded []string
+	}{
+		{"останній тайл скинуто", []string{"C"}, []string{"C"}},
+		{"усі тайли, що лишилися, скинуто", []string{"C", "C"}, []string{"C", "C"}},
+		{"стопка порожня", []string{}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := afterPlacement(closedCity(), tt.deck)
+			if err := SkipMeeple(g, 0, 2); err != nil {
+				t.Fatal(err)
+			}
+			if !Finished(g) || g.CurrentTile != "" || len(g.Deck) != 0 || !slices.Equal(g.Discarded, tt.wantDiscarded) {
+				t.Fatalf("finished = %t, currentTile = %q, deck = %v, discarded = %v", Finished(g), g.CurrentTile, g.Deck, g.Discarded)
+			}
+			// Скинуті тайли на поле не потрапили; хід не перейшов.
+			if len(g.Tiles) != 3 || g.CurrentSeat != 0 || g.TurnNumber != 5 || g.Phase != model.PhasePlaceMeeple {
+				t.Fatalf("tiles = %d, seat = %d, turn = %d, phase = %s", len(g.Tiles), g.CurrentSeat, g.TurnNumber, g.Phase)
+			}
+
+			// api.md: після завершення будь-яка дія — WRONG_PHASE, навіть від того, чий був хід.
+			before := snapshotOf(g)
+			for seat := range 2 {
+				if err := PlaceTile(g, seat, "oleg", pos(1, 0), 90); !errors.Is(err, ErrWrongPhase) {
+					t.Fatalf("place_tile місця %d: err = %v, want %v", seat, err, ErrWrongPhase)
+				}
+				if err := SkipMeeple(g, seat, 2); !errors.Is(err, ErrWrongPhase) {
+					t.Fatalf("skip_meeple місця %d: err = %v, want %v", seat, err, ErrWrongPhase)
+				}
+			}
+			assertUnchanged(t, before, g)
+		})
+	}
 }
