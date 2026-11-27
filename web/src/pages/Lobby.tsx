@@ -1,28 +1,44 @@
-import { useEffect, useRef, useState } from 'react'
-import { inviteLink, openRoomSocket } from '../api/client'
-import type { RoomView } from '../api/types'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { inviteLink, openRoomSocket, sendMessage } from '../api/client'
+import type { ClientMessage, RoomView } from '../api/types'
 import type { Session } from '../App'
+import Game from './Game'
 
-// US-02 (посилання) і US-04 (живий список гравців).
+// US-02 (посилання), US-04 (живий список гравців), US-05 (старт партії). Після старту той самий сокет обслуговує екран гри.
 export default function Lobby({ session }: { session: Session }) {
   const [room, setRoom] = useState<RoomView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [closed, setClosed] = useState(false)
+  const wsRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
     const ws = openRoomSocket(session.roomCode, session.token, (m) => {
-      if (m.type === 'room_state') setRoom(m.room)
-      else setError(m.error.message)
+      if (m.type === 'room_state') {
+        setRoom(m.room)
+        setError(null) // стан змінився — попередня помилка дії вже неактуальна
+      } else {
+        setError(m.error.message)
+      }
     })
     ws.onclose = () => setClosed(true)
+    wsRef.current = ws
     return () => {
       ws.onclose = null
       ws.close()
+      wsRef.current = null
     }
   }, [session])
 
+  const send = useCallback((m: ClientMessage) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) sendMessage(wsRef.current, m)
+  }, [])
+
   if (closed) return <p className="fail">З’єднання з кімнатою втрачено. Створіть нову кімнату.</p>
   if (!room) return <p>Підключаємося до кімнати…</p>
+  if (room.status !== 'LOBBY' && room.game) return <Game room={room} game={room.game} send={send} error={error} />
+
+  const isHost = room.youPlayerId === room.hostPlayerId
+  const enough = room.players.length >= 2
 
   return (
     <>
@@ -38,6 +54,16 @@ export default function Lobby({ session }: { session: Session }) {
           </li>
         ))}
       </ul>
+      {isHost ? (
+        <div>
+          <button disabled={!enough} onClick={() => send({ type: 'start_game' })}>
+            Почати гру
+          </button>
+          {!enough && <span className="hint"> Потрібно щонайменше 2 гравці</span>}
+        </div>
+      ) : (
+        <p>Очікуємо, поки організатор почне гру</p>
+      )}
       {error && <p className="fail">{error}</p>}
     </>
   )

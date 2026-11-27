@@ -10,7 +10,7 @@
 - **Для кого:** «Організатор віддаленого вечора» — збирає друзів з різних міст на партію під голосовий дзвінок, правила знає сам. Продукт не навчає правилам.
 - **Цикл:** створити кімнату → запросити за посиланням → почати партію → ходи (тайл → міпл) → автоматичний підрахунок → фінальна таблиця.
 - **Контекст:** навчальний проєкт, 3 людини, один семестр. Наприкінці — живе демо повної партії 2–5 гравців.
-- **Стан:** реалізовано лобі (US-01–US-04): створення кімнати, посилання-запрошення, вхід за посиланням, живий список гравців через WebSocket. Ігрової логіки (US-05+) ще немає. Сховище — пам'ять процесу, перезапуск сервера видаляє кімнати.
+- **Стан:** реалізовано лобі (US-01–US-04) і хід без міплів (US-05–US-12, US-14–US-16): старт партії, черга ходу, тайл зі стопки з автоматичним скиданням, обертання, підсвітка, розміщення, синхронізація, лічильники, перервана партія (`ABANDONED`). Міплів (US-13) і підрахунку очок (US-18–US-23) ще немає: `place_meeple` відхиляється, кінець стопки дає `FINISHED` з нулями (shortcut, див. `docs/api.md`). Сховище — пам'ять процесу, перезапуск сервера видаляє кімнати.
 
 ---
 
@@ -26,7 +26,7 @@
 | Архітектурні рішення | [`docs/adr/`](docs/adr/) |
 | Модель даних (поля, ключі, унікальність) | [`docs/data-model.md`](docs/data-model.md) |
 | REST, WebSocket, коди помилок | [`docs/api.md`](docs/api.md) |
-| Каталог 72 тайлів | `docs/tiles.md` — **ще не існує**, створюється перед US-09 і звіряється з фізичною копією |
+| Каталог 72 тайлів | [`docs/tiles.md`](docs/tiles.md) (звірено з фізичною копією), превʼю — `docs/tiles-preview.html` |
 
 Критерії приймання — специфікація поведінки: один Gherkin-сценарій = щонайменше один тест.
 
@@ -37,7 +37,7 @@
 - **Бекенд:** Go 1.26, `net/http` (`http.ServeMux`). WebSocket — `github.com/coder/websocket`, додається з US-04.
 - **Фронтенд:** React 19 + TypeScript (strict) + Vite, лінтер oxlint. Поле — SVG без бібліотек.
 - **Сховище:** пам'ять процесу (`server/internal/store`), бази даних немає ([ADR-0004](docs/adr/0004-in-memory-storage.md)).
-- **Тести:** `go test` (табличні тести).
+- **Тести:** `go test` (табличні тести) для `game`, `room`, `httpapi`; Vitest (середовище `node`) для чистих функцій `web/src/game`; `npm test` з кореня запускає обидва ([ADR-0006](docs/adr/0006-testing-stack.md)). Що й на якому рівні тестуємо — [`docs/testing-strategy.md`](docs/testing-strategy.md); тести з критеріїв приймання пишемо за скілом [`.claude/skills/tests-from-ac`](.claude/skills/tests-from-ac/SKILL.md) (матриця, тести, «зламай код навмисно»); результати — [`docs/testing-report.md`](docs/testing-report.md).
 
 Нова технологія або бібліотека (БД, router, state-менеджер, UI-кіт, Socket.IO, веб-фреймворк) — рішення команди через новий ADR. Пропонуй, не впроваджуй.
 
@@ -53,12 +53,15 @@ server/                  Go-модуль github.com/EndlessNN/Webcassonne/server
   internal/httpapi/      REST/WS-обробники, єдиний формат помилок (errors.go)
   internal/model/        структури з docs/data-model.md, без логіки
   internal/store/        сховище кімнат у пам'яті
-  internal/room/         кімнати й лобі: створення, вхід, підписки на знімки; (майбутнє) черга ходу
-  internal/game/         (майбутнє) чисті правила: тайли, стикування, об'єкти, підрахунок
+  internal/room/         кімнати й лобі: створення, вхід, підписки на знімки; партія: старт, дії ходу, ABANDONED (game.go)
+  internal/game/         чисті правила: каталог тайлів (catalog.go = docs/tiles.md), стикування, допустимі позиції,
+                         стопка, хід; (майбутнє) об'єкти, міпли, підрахунок
 web/                     React + TS + Vite
   src/api/               types.ts (дзеркало docs/api.md), client.ts
   src/App.tsx            вибір екрана: головна, запрошення /r/{code}, лобі
-  src/pages/             Home (US-01), Invite (US-03), Lobby (US-02, US-04), NicknameForm
+  src/pages/             Home (US-01), Invite (US-03), Lobby (US-02, US-04, US-05), NicknameForm,
+                         Game (екран партії), Board (SVG-поле, US-08), TileShape (схематичний тайл)
+  src/game/              чисті функції клієнта без React: обертання, підсвітка, геометрія тайла
 ```
 
 Залежності лише в один бік: `httpapi` → `room` → `game` → `model`. `store` знає лише `model`. `game` не знає про мережу, кімнати й сховище.
@@ -75,8 +78,14 @@ go -C server run ./cmd/server
 # Dev-режим UI з гарячим перезавантаженням (другий термінал; /api проксіюється на :8090)
 npm --prefix web run dev            # http://localhost:5173
 
+# Тести (з кореня; перед першим запуском — npm --prefix web install)
+npm test                            # усі: Go + Vitest
+npm run test:go                     # = go -C server test ./...
+npm run test:web                    # = npm --prefix web test (Vitest)
+go -C server test -race ./...       # гонки даних (потрібен gcc)
+go -C server test -cover ./...      # покриття — орієнтир
+
 # Перевірки
-go -C server test ./...
 go -C server vet ./...
 gofmt -l server                     # має нічого не вивести
 npm --prefix web run lint
